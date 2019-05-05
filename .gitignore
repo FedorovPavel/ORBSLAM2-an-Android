@@ -7,3 +7,6 @@
 /build
 /captures
 .externalNativeBuild
+.vscode/
+/.idea/caches
+/openCVLibrary320/build
