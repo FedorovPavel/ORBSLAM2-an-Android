@@ -67,7 +67,7 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
     txt_2_bin();
     ttrack++;
 #else
-    //LOGI("Native Start");
+    LOGGER("Tracking current frame");
     cv::Mat *pMat = (cv::Mat *) matAddr;
 
     std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
@@ -77,7 +77,7 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
     start = clock();
 
     //LOGI("new frame come here===============");
-    //ttrack 表示帧号
+    //ttrack Indicates the frame number
     cv::Mat pose = SLAM.TrackMonocular(*pMat, ttrack);
     end = clock();
     LOGGER("Get Pose Use Time=%f\n", ((double) end - start) / CLOCKS_PER_SEC);
@@ -123,11 +123,11 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
 
 
 
-        cv::Mat rVec;
-        cv::Rodrigues(pose.colRange(0, 3).rowRange(0, 3), rVec);
-        cv::Mat tVec = pose.col(3).rowRange(0, 3);
+        cv::Mat rotationVec;
+        cv::Rodrigues(pose.colRange(0, 3).rowRange(0, 3), rotationVec);
+        cv::Mat translateVec = pose.col(3).rowRange(0, 3);
 
-        const vector<ORB_SLAM2::MapPoint *> vpMPs = SLAM.mpTracker->mpMap->GetAllMapPoints();//所有的地图点
+        const vector<ORB_SLAM2::MapPoint *> vpMPs = SLAM.mpTracker->mpMap->GetAllMapPoints();
         const vector<ORB_SLAM2::MapPoint *> vpTMPs = SLAM.GetTrackedMapPoints();
         vector<cv::KeyPoint> vKPs = SLAM.GetTrackedKeyPointsUn();
 //        for(int i=0; i<vKPs.size(); i++)
@@ -140,10 +140,14 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
 //        if(vpTMPs.size() > 0){
 //
 //        }
+
+
+//  #MapPointToImage
         if (vpMPs.size() > 0) {
             std::vector<cv::Point3f> allmappoints;
             for (size_t i = 0; i < vpMPs.size(); i++) {
                 if (vpMPs[i]) {
+
                     cv::Point3f pos = cv::Point3f(vpMPs[i]->GetWorldPos());
                     allmappoints.push_back(pos);
 //                  LOGE("Point's world pose is %f %f %f",pos.x,pos.y,pos.z );
@@ -151,15 +155,18 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
             }
             LOGGER("all map points size %d", allmappoints.size());
             std::vector<cv::Point2f> projectedPoints;
-            cv::projectPoints(allmappoints, rVec, tVec, SLAM.mpTracker->mK,
+            cv::projectPoints(allmappoints, rotationVec, translateVec, SLAM.mpTracker->mK,
                               SLAM.mpTracker->mDistCoef, projectedPoints);
+
             for (size_t j = 0; j < projectedPoints.size(); ++j) {
                 cv::Point2f r1 = projectedPoints[j];
                 if (r1.x < 640 && r1.x > 0 && r1.y > 0 && r1.y < 480)
-                    cv::circle(*pMat, cv::Point(r1.x, r1.y), 2, cv::Scalar(0, 255, 0), 1, 8);
+                    cv::circle(*pMat, cv::Point(r1.x, r1.y), 2, cv::Scalar(0, 255, 0), 1, LINE_8);
             }
 
-            if (instialized == false) {
+            //  Product logic
+            /*
+            if (instialized == false){
                 Plane mplane;
                 cv::Mat tempTpw, rpw, rwp, tpw, twp;
                 LOGGER("Detect  Plane");
@@ -195,6 +202,7 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
                 }
 
             } else {
+
                 cv::Mat Plane2Camera = pose * Plane2World;
 //                vector<cv::Mat> axisPoints(4);
 //                axisPoints[0] = (cv::Mat_ <float>(4,1)<<0,0,0,1);
@@ -264,7 +272,7 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
 //                cv::circle(*pMat, projectedPoints[0], 2, cv::Scalar(0, 0, 250), 1, 8);
 
             }
-
+            */
         }
     }
 
@@ -310,6 +318,7 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
             float tempdata = ima.at<float>(i, j);
             resultPtr[i * ima.rows + j] = tempdata;
         }
+
     env->ReleaseFloatArrayElements(resultArray, resultPtr, 0);
     return resultArray;
 #endif
