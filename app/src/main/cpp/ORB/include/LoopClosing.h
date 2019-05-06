@@ -36,118 +36,116 @@
 namespace ORB_SLAM2
 {
 
-    class Tracking;
-    class LocalMapping;
-    class KeyFrameDatabase;
+class Tracking;
+class LocalMapping;
+class KeyFrameDatabase;
 
-    class LoopClosing
-    {
-        public:
-            typedef pair<set<KeyFrame *>, int> ConsistentGroup;
-            typedef map<KeyFrame *, g2o::Sim3, std::less<KeyFrame *>, Eigen::aligned_allocator<std::pair<KeyFrame* const, g2o::Sim3>>> KeyFrameAndPose;
 
-        public:
-    
-            LoopClosing(Map *pMap, KeyFrameDatabase *pDB, ORBVocabulary *pVoc, const bool bFixScale);
+class LoopClosing
+{
+public:
 
-            void SetTracker(Tracking *pTracker);
+    typedef pair<set<KeyFrame*>,int> ConsistentGroup;    
+    typedef map<KeyFrame*,g2o::Sim3,std::less<KeyFrame*>,
+        Eigen::aligned_allocator<std::pair<const KeyFrame*, g2o::Sim3> > > KeyFrameAndPose;
 
-            void SetLocalMapper(LocalMapping *pLocalMapper);
+public:
 
-            // Main function
-            void Run();
+    LoopClosing(Map* pMap, KeyFrameDatabase* pDB, ORBVocabulary* pVoc,const bool bFixScale);
 
-            void InsertKeyFrame(KeyFrame *pKF);
+    void SetTracker(Tracking* pTracker);
 
-            void RequestReset();
+    void SetLocalMapper(LocalMapping* pLocalMapper);
 
-            // This function will run in a separate thread
-            void RunGlobalBundleAdjustment(unsigned long nLoopKF);
+    // Main function
+    void Run();
 
-            bool isRunningGBA()
-            {
-                unique_lock<std::mutex> lock(mMutexGBA);
-                return mbRunningGBA;
-            }
+    void InsertKeyFrame(KeyFrame *pKF);
 
-            bool isFinishedGBA()
-            {
-                unique_lock<std::mutex> lock(mMutexGBA);
-                return mbFinishedGBA;
-            }
+    void RequestReset();
 
-            void RequestFinish();
+    // This function will run in a separate thread
+    void RunGlobalBundleAdjustment(unsigned long nLoopKF);
 
-            bool isFinished();
+    bool isRunningGBA(){
+        unique_lock<std::mutex> lock(mMutexGBA);
+        return mbRunningGBA;
+    }
+    bool isFinishedGBA(){
+        unique_lock<std::mutex> lock(mMutexGBA);
+        return mbFinishedGBA;
+    }   
 
-            EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    void RequestFinish();
 
-        protected:
-    
-            bool CheckNewKeyFrames();
+    bool isFinished();
 
-            bool DetectLoop();
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-            bool ComputeSim3();
+protected:
 
-            void SearchAndFuse(const KeyFrameAndPose &CorrectedPosesMap);
+    bool CheckNewKeyFrames();
 
-            void CorrectLoop();
+    bool DetectLoop();
 
-            void ResetIfRequested();
-    
-            bool mbResetRequested;
-            std::mutex mMutexReset;
+    bool ComputeSim3();
 
-            bool CheckFinish();
-            
-            void SetFinish();
-    
-            bool mbFinishRequested;
-            bool mbFinished;
-            std::mutex mMutexFinish;
+    void SearchAndFuse(const KeyFrameAndPose &CorrectedPosesMap);
 
-            Map *mpMap;
-            Tracking *mpTracker;
+    void CorrectLoop();
 
-            KeyFrameDatabase *mpKeyFrameDB;
-            ORBVocabulary *mpORBVocabulary;
+    void ResetIfRequested();
+    bool mbResetRequested;
+    std::mutex mMutexReset;
 
-            LocalMapping *mpLocalMapper;
+    bool CheckFinish();
+    void SetFinish();
+    bool mbFinishRequested;
+    bool mbFinished;
+    std::mutex mMutexFinish;
 
-            std::list<KeyFrame *> mlpLoopKeyFrameQueue;
+    Map* mpMap;
+    Tracking* mpTracker;
 
-            std::mutex mMutexLoopQueue;
+    KeyFrameDatabase* mpKeyFrameDB;
+    ORBVocabulary* mpORBVocabulary;
 
-            // Loop detector parameters
-            float mnCovisibilityConsistencyTh;
+    LocalMapping *mpLocalMapper;
 
-            // Loop detector variables
-            KeyFrame *mpCurrentKF;
-            KeyFrame *mpMatchedKF;
-            std::vector<ConsistentGroup> mvConsistentGroups;
-            std::vector<KeyFrame *> mvpEnoughConsistentCandidates;
-            std::vector<KeyFrame *> mvpCurrentConnectedKFs;
-            std::vector<MapPoint *> mvpCurrentMatchedPoints;
-            std::vector<MapPoint *> mvpLoopMapPoints;
-            cv::Mat mScw;
-            g2o::Sim3 mg2oScw;
+    std::list<KeyFrame*> mlpLoopKeyFrameQueue;
 
-            long unsigned int mLastLoopKFid;
+    std::mutex mMutexLoopQueue;
 
-            // Variables related to Global Bundle Adjustment
-            bool mbRunningGBA;
-            bool mbFinishedGBA;
-            bool mbStopGBA;
-            std::mutex mMutexGBA;
-            std::thread *mpThreadGBA;
+    // Loop detector parameters
+    float mnCovisibilityConsistencyTh;
 
-            // Fix scale in the stereo/RGB-D case
-            bool mbFixScale;
+    // Loop detector variables
+    KeyFrame* mpCurrentKF;
+    KeyFrame* mpMatchedKF;
+    std::vector<ConsistentGroup> mvConsistentGroups;
+    std::vector<KeyFrame*> mvpEnoughConsistentCandidates;
+    std::vector<KeyFrame*> mvpCurrentConnectedKFs;
+    std::vector<MapPoint*> mvpCurrentMatchedPoints;
+    std::vector<MapPoint*> mvpLoopMapPoints;
+    cv::Mat mScw;
+    g2o::Sim3 mg2oScw;
 
-            bool mnFullBAIdx;
-    };
+    long unsigned int mLastLoopKFid;
 
-} // namespace ORB_SLAM2
+    // Variables related to Global Bundle Adjustment
+    bool mbRunningGBA;
+    bool mbFinishedGBA;
+    bool mbStopGBA;
+    std::mutex mMutexGBA;
+    std::thread* mpThreadGBA;
+
+    // Fix scale in the stereo/RGB-D case
+    bool mbFixScale;
+
+
+    bool mnFullBAIdx;
+};
+
+} //namespace ORB_SLAM
 
 #endif // LOOPCLOSING_H

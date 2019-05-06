@@ -25,9 +25,11 @@ import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
 import org.opencv.core.Mat;
 
-import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.InputStreamReader;
+import java.io.BufferedReader;
+import java.nio.charset.StandardCharsets;
 
 public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraViewListener2 {
 
@@ -82,21 +84,27 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
             e.printStackTrace();
         }
 
+        try {
+            requestPermissionsForCamera();
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+        }
+
         mOpenCvCameraView = (CameraBridgeViewBase) findViewById(R.id.tutorial1_activity_java_surface_view);
         mOpenCvCameraView.setMaxFrameSize(640, 480);
         mOpenCvCameraView.setVisibility(SurfaceView.VISIBLE);
         mOpenCvCameraView.setCvCameraViewListener(this);
 
-        //opengl图层
+        //OpenGL layer
         glSurfaceView = (GLSurfaceView) findViewById(R.id.glSurfaceView);
         //OpenGL ES 2.0
         glSurfaceView.setEGLContextClientVersion(2);
-        //设置透明背景
+        //Set transparent background
         glSurfaceView.setEGLConfigChooser(8, 8, 8, 8, 16, 0);
         glSurfaceView.getHolder().setFormat(PixelFormat.TRANSLUCENT);
         final MyRender earthRender = new MyRender(this);
         glSurfaceView.setRenderer(earthRender);
-        // 设置渲染模式为主动渲染
+        // active rendering
         glSurfaceView.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
         glSurfaceView.setZOrderOnTop(true);
         glSurfaceView.setOnTouchListener(new View.OnTouchListener() {
@@ -145,7 +153,7 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
 
         myTextView = (TextView) findViewById(R.id.myTextView);
         seek = (SeekBar) findViewById(R.id.mySeekBar);
-        //初始化
+        //initialization
         seek.setProgress(60);
         seek.setOnSeekBarChangeListener(seekListener);
         myTextView.setText("Scale:" + SCALE);
@@ -191,18 +199,30 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
         System.loadLibrary("native-lib");
     }
 
+    public void requestPermissionsForCamera() {
+        String [] needPermissions = { Manifest.permission.CAMERA };
+        int permission = ActivityCompat.checkSelfPermission(OrbTest.this, Manifest.permission.CAMERA);
+        if (permission != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(OrbTest.this, needPermissions, 1);
+        } else {
+            System.out.println("Camera is enable");
+        }
+        return;
+    }
 
-    private native float[] CVTest(long matAddr);  //调用 c++代码
+    private native float[] CVTest(long matAddr); //Calling c++ code
 
 
     /**
-     * 处理图像的函数，这个函数在相机刷新每一帧都会调用一次，而且每次的输入参数就是当前相机视图信息
+     * The function that processes the image.
+     * This function is called once every time the camera refreshes,
+     * and each input parameter is the current camera view information.
      * * @param inputFrame
      * @return
      */
     public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
         Mat rgb = inputFrame.rgba();
-        float[] poseMatrix = CVTest(rgb.getNativeObjAddr()); //从slam系统获得相机位姿矩阵
+        float[] poseMatrix = CVTest(rgb.getNativeObjAddr()); //Slam system obtains camera pose matrix
 
         if (poseMatrix.length != 0) {
             double[][] pose = new double[4][4];
@@ -221,7 +241,7 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
                 System.out.print("\n");
             }
 
-            System.out.println("总共第" + count + "帧，缩放因子为==============" + SCALE);
+            System.out.println("Total number: " + count + "frame, the scaling factor is " + SCALE);
             double[][] R = new double[3][3];
             double[] T = new double[3];
 
@@ -241,11 +261,10 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
             count++;
 
         } else {
-            //如果没有得到相机的位姿矩阵，就不画立方体
+            //If you don't get the pose matrix of the camera, don't draw the cube
             MyRender.flag = false;
         }
 
-//      CVTest(rgb.getNativeObjAddr());
         return rgb;
     }
 
@@ -262,7 +281,7 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
 
 
     /**
-     * 用于测试java读取文件权限的函数
+     * read file content with request permission
      **/
     void readFileOnLine(String strFileName) throws Exception {
 
@@ -282,13 +301,18 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
             );
         }
         FileInputStream fis = new FileInputStream(new File(strFileName));
-        StringBuffer sBuffer = new StringBuffer();
-        DataInputStream dataIO = new DataInputStream(fis);
-        String strLine = null;
-        while ((strLine = dataIO.readLine()) != null) {
-            Log.i(TAG, strLine + "+++++++++++++++++++++++++++++++++++++++");
+        BufferedReader reader;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
+            reader = new BufferedReader(new InputStreamReader(fis, StandardCharsets.UTF_8));
+        } else {
+            reader = new BufferedReader(new InputStreamReader(fis));
         }
-        dataIO.close();
+
+        String strLine = null;
+        while ((strLine = reader.readLine()) != null) {
+            Log.i(TAG, strLine + "||");
+        }
+        reader.close();
         fis.close();
     }
 
@@ -305,8 +329,7 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
         }
 
         @Override
-        public void onProgressChanged(SeekBar seekBar, int progress,
-                                      boolean fromUser) {
+        public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
             Log.i(TAG, "onProgressChanged");
             if (progress > 50) {
                 SCALE = (progress - 50) * 10;
@@ -314,7 +337,6 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
                 SCALE = (50 - progress) * 0.5;
             }
             myTextView.setText("Scale: " + SCALE);
-
         }
     };
 

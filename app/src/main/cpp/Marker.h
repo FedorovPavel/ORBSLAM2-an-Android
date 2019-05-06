@@ -10,20 +10,20 @@
 #include <opencv2/calib3d/calib3d.hpp>
 #include <vector>
 
+
 #include "Camera.h"
+
 
 using namespace cv;
 using namespace std;
 
-class Marker
-{
-  public:
-    Marker()
-    {
+class Marker {
+public:
+    Marker(){
         id = -1;
     }
     int id;
-    Mat world2camera, camera2world;
+    Mat world2camera,camera2world;
     vector<Point2f> corners;
     vector<Point2f> axis_points;
     int hammDistMarker18(Mat bits);
@@ -32,5 +32,6 @@ class Marker
     void FindID(Mat thresh);
     void GetTransformMatrix(Camera camera);
 };
+
 
 #endif //SINGLEMARKER_MARKER_H
