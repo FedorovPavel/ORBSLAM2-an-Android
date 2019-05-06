@@ -8,52 +8,54 @@
 
 
 #include <android/log.h>
-#define  LOG_TAG    "native-dev"
-#define  LOGI(...)  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-#define LOGE(...)  __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
-#define LOGI(...)  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+
+#define LOG_TAG    "native-dev"
+#define CURRENT_LOG_LEVEL ANDROID_LOG_INFO
+#define LOGGER(...)  __android_log_print(CURRENT_LOG_LEVEL, LOG_TAG, __VA_ARGS__)
 
 #define BOWISBIN
 
 //ORB_SLAM2::System SLAM("/storage/emulated/0/ORBvoc.txt","/storage/emulated/0/TUM1.yaml",ORB_SLAM2::System::MONOCULAR,false);
 #ifdef BOWISBIN
-ORB_SLAM2::System SLAM("/storage/emulated/0/SLAM/VOC/ORBvoc.bin","/storage/emulated/0/SLAM/Calibration/mi6.yaml",ORB_SLAM2::System::MONOCULAR,false);
 #endif
+ORB_SLAM2::System SLAM("/storage/emulated/0/SLAM/VOC/ORBvoc.bin",
+                       "/storage/emulated/0/SLAM/Calibration/mi6.yaml",
+                       ORB_SLAM2::System::MONOCULAR, false);
+
 std::chrono::steady_clock::time_point t0;
-double ttrack=0;
+double ttrack = 0;
 
-
-cv::Mat Plane2World=cv::Mat::eye(4,4,CV_32F);
-cv::Mat Marker2World=cv::Mat::eye(4,4,CV_32F);
+cv::Mat Plane2World = cv::Mat::eye(4, 4, CV_32F);
+cv::Mat Marker2World = cv::Mat::eye(4, 4, CV_32F);
 cv::Mat centroid;
 
-bool load_as_text(ORB_SLAM2::ORBVocabulary* voc, const std::string infile) {
+bool load_as_text(ORB_SLAM2::ORBVocabulary *voc, const std::string infile) {
     clock_t tStart = clock();
     bool res = voc->loadFromTextFile(infile);
-    LOGE("Loading fom text: %.2fs\n", (double)(clock() - tStart)/CLOCKS_PER_SEC);
+    LOGGER("Loading fom text: %.2fs\n", (double) (clock() - tStart) / CLOCKS_PER_SEC);
     return res;
 }
 
-void save_as_binary(ORB_SLAM2::ORBVocabulary* voc, const std::string outfile) {
+void save_as_binary(ORB_SLAM2::ORBVocabulary *voc, const std::string outfile) {
     clock_t tStart = clock();
     voc->saveToBinaryFile(outfile);
-    LOGE("Saving as binary: %.2fs\n", (double)(clock() - tStart)/CLOCKS_PER_SEC);
+    LOGGER("Saving as binary: %.2fs\n", (double) (clock() - tStart) / CLOCKS_PER_SEC);
 }
 
-void txt_2_bin(){
-    ORB_SLAM2::ORBVocabulary* voc = new ORB_SLAM2::ORBVocabulary();
+void txt_2_bin() {
+    ORB_SLAM2::ORBVocabulary *voc = new ORB_SLAM2::ORBVocabulary();
     load_as_text(voc, "/storage/emulated/0/SLAM/VOC/ORBvoc.txt");
     save_as_binary(voc, "/storage/emulated/0/SLAM/VOC/ORBvoc.bin");
 }
 
-cv::Point2f Camera2Pixel(cv::Mat poseCamera,cv::Mat mk){
+cv::Point2f Camera2Pixel(cv::Mat poseCamera, cv::Mat mk) {
     return Point2f(
-            poseCamera.at<float>(0,0)/poseCamera.at<float>(2,0)*mk.at<float>(0,0)+mk.at<float>(0,2),
-            poseCamera.at<float>(1,0)/poseCamera.at<float>(2,0)*mk.at<float>(1,1)+mk.at<float>(1,2)
+            poseCamera.at<float>(0, 0) / poseCamera.at<float>(2, 0) * mk.at<float>(0, 0) +
+            mk.at<float>(0, 2),
+            poseCamera.at<float>(1, 0) / poseCamera.at<float>(2, 0) * mk.at<float>(1, 1) +
+            mk.at<float>(1, 2)
     );
 }
-
-
 
 
 extern "C"
@@ -66,28 +68,28 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
     ttrack++;
 #else
     //LOGI("Native Start");
-    cv::Mat *pMat = (cv::Mat*)matAddr;
+    cv::Mat *pMat = (cv::Mat *) matAddr;
 
     std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
-    ttrack = std::chrono::duration_cast < std::chrono::duration < double >> (t1 - t0).count();
+    ttrack = std::chrono::duration_cast<std::chrono::duration<double >>(t1 - t0).count();
 
-    clock_t start,end;
-    start=clock();
+    clock_t start, end;
+    start = clock();
 
     //LOGI("new frame come here===============");
     //ttrack 表示帧号
-    cv::Mat pose = SLAM.TrackMonocular(*pMat,ttrack);
+    cv::Mat pose = SLAM.TrackMonocular(*pMat, ttrack);
     end = clock();
-    LOGI("Get Pose Use Time=%f\n",((double)end-start)/CLOCKS_PER_SEC);
+    LOGGER("Get Pose Use Time=%f\n", ((double) end - start) / CLOCKS_PER_SEC);
 
-    static bool instialized =false;
-    static bool markerDetected =false;
-    if(SLAM.MapChanged()){
+    static bool instialized = false;
+    static bool markerDetected = false;
+    if (SLAM.MapChanged()) {
         instialized = false;
-        markerDetected =false;
+        markerDetected = false;
     }
 
-    if(!pose.empty()){
+    if (!pose.empty()) {
 //        if(markerDetected == false){
 //            Process process(pMat);
 //            markerDetected = process.Run();
@@ -125,8 +127,8 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
         cv::Rodrigues(pose.colRange(0, 3).rowRange(0, 3), rVec);
         cv::Mat tVec = pose.col(3).rowRange(0, 3);
 
-        const vector<ORB_SLAM2::MapPoint*> vpMPs = SLAM.mpTracker->mpMap->GetAllMapPoints();//所有的地图点
-        const vector<ORB_SLAM2::MapPoint*> vpTMPs = SLAM.GetTrackedMapPoints();
+        const vector<ORB_SLAM2::MapPoint *> vpMPs = SLAM.mpTracker->mpMap->GetAllMapPoints();//所有的地图点
+        const vector<ORB_SLAM2::MapPoint *> vpTMPs = SLAM.GetTrackedMapPoints();
         vector<cv::KeyPoint> vKPs = SLAM.GetTrackedKeyPointsUn();
 //        for(int i=0; i<vKPs.size(); i++)
 //        {
@@ -147,46 +149,53 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
 //                  LOGE("Point's world pose is %f %f %f",pos.x,pos.y,pos.z );
                 }
             }
-            LOGI("all map points size %d", allmappoints.size());
+            LOGGER("all map points size %d", allmappoints.size());
             std::vector<cv::Point2f> projectedPoints;
-            cv::projectPoints(allmappoints, rVec, tVec, SLAM.mpTracker->mK, SLAM.mpTracker->mDistCoef, projectedPoints);
+            cv::projectPoints(allmappoints, rVec, tVec, SLAM.mpTracker->mK,
+                              SLAM.mpTracker->mDistCoef, projectedPoints);
             for (size_t j = 0; j < projectedPoints.size(); ++j) {
                 cv::Point2f r1 = projectedPoints[j];
-                if(r1.x <640 && r1.x> 0 && r1.y >0 && r1.y <480)
+                if (r1.x < 640 && r1.x > 0 && r1.y > 0 && r1.y < 480)
                     cv::circle(*pMat, cv::Point(r1.x, r1.y), 2, cv::Scalar(0, 255, 0), 1, 8);
             }
 
-            if(instialized == false){
+            if (instialized == false) {
                 Plane mplane;
-                cv::Mat tempTpw,rpw,rwp,tpw,twp;
-                LOGE("Detect  Plane");
-                tempTpw = mplane.DetectPlane(pose,vpTMPs,50);
-                if(!tempTpw.empty()){
-                    LOGE("Find  Plane");
-                    rpw = tempTpw.rowRange(0,3).colRange(0,3);
-                    for(int row = 0 ; row < 4;row++){
-                        LOGE(" tempTpw %f %f %f %f",tempTpw.at<float>(row,0),tempTpw.at<float>(row,1),tempTpw.at<float>(row,2),tempTpw.at<float>(row,3));
+                cv::Mat tempTpw, rpw, rwp, tpw, twp;
+                LOGGER("Detect  Plane");
+                tempTpw = mplane.DetectPlane(pose, vpTMPs, 50);
+                if (!tempTpw.empty()) {
+                    LOGGER("Find  Plane");
+                    rpw = tempTpw.rowRange(0, 3).colRange(0, 3);
+                    for (int row = 0; row < 4; row++) {
+                        LOGGER(" tempTpw %f %f %f %f", tempTpw.at<float>(row, 0),
+                             tempTpw.at<float>(row, 1), tempTpw.at<float>(row, 2),
+                             tempTpw.at<float>(row, 3));
                     }
-                    tpw = tempTpw.col(3).rowRange(0,3);
+                    tpw = tempTpw.col(3).rowRange(0, 3);
                     rwp = rpw.t();
-                    twp = -rwp*tpw;
-                    rwp.copyTo(Plane2World.rowRange(0,3).colRange(0,3));
-                    for(int row = 0 ; row < 3;row++){
-                        LOGE(" rwp %f %f %f",rwp.at<float>(row,0),rwp.at<float>(row,1),rwp.at<float>(row,2));
+                    twp = -rwp * tpw;
+                    rwp.copyTo(Plane2World.rowRange(0, 3).colRange(0, 3));
+                    for (int row = 0; row < 3; row++) {
+                        LOGGER(" rwp %f %f %f", rwp.at<float>(row, 0), rwp.at<float>(row, 1),
+                             rwp.at<float>(row, 2));
                     }
-                    twp.copyTo(Plane2World.col(3).rowRange(0,3));
-                    for(int row = 0 ; row < 4;row++){
-                        LOGE(" Plane2World %f %f %f %f",Plane2World.at<float>(row,0),Plane2World.at<float>(row,1),Plane2World.at<float>(row,2),Plane2World.at<float>(row,3));
+                    twp.copyTo(Plane2World.col(3).rowRange(0, 3));
+                    for (int row = 0; row < 4; row++) {
+                        LOGGER(" Plane2World %f %f %f %f", Plane2World.at<float>(row, 0),
+                             Plane2World.at<float>(row, 1), Plane2World.at<float>(row, 2),
+                             Plane2World.at<float>(row, 3));
                     }
                     centroid = mplane.o;
-                    LOGE("Centroid is %f %f %f",mplane.o.at<float>(0,0),mplane.o.at<float>(1,0),mplane.o.at<float>(2,0));
+                    LOGGER("Centroid is %f %f %f", mplane.o.at<float>(0, 0), mplane.o.at<float>(1, 0),
+                         mplane.o.at<float>(2, 0));
                     instialized = true;
-                    LOGE("Find  Plane");
-                    Plane2World =tempTpw;
+                    LOGGER("Find  Plane");
+                    Plane2World = tempTpw;
                 }
 
-            }else{
-                cv::Mat Plane2Camera = pose*Plane2World;
+            } else {
+                cv::Mat Plane2Camera = pose * Plane2World;
 //                vector<cv::Mat> axisPoints(4);
 //                axisPoints[0] = (cv::Mat_ <float>(4,1)<<0,0,0,1);
 //                axisPoints[1] = (cv::Mat_ <float>(4,1)<<0.3,0,0,1);
@@ -205,14 +214,14 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
 //                cv::line(*pMat, drawPoints[0],drawPoints[3], cv::Scalar(0, 0, 250), 5);
 
                 vector<cv::Point3f> drawPoints(8);
-                drawPoints[0] = cv::Point3f(0,0,0);
-                drawPoints[1] = cv::Point3f(0.3,0.0,0.0);
-                drawPoints[2] = cv::Point3f(0.0,0,0.3);
-                drawPoints[3] = cv::Point3f(0.0,0.3,0);
-                drawPoints[4] =cv::Point3f(0,0.3,0.3);
-                drawPoints[5] =cv::Point3f(0.3,0.3,0.3);
-                drawPoints[6] =cv::Point3f(0.3,0,0.3);
-                drawPoints[7] =cv::Point3f(0.3,0.3,0);
+                drawPoints[0] = cv::Point3f(0, 0, 0);
+                drawPoints[1] = cv::Point3f(0.3, 0.0, 0.0);
+                drawPoints[2] = cv::Point3f(0.0, 0, 0.3);
+                drawPoints[3] = cv::Point3f(0.0, 0.3, 0);
+                drawPoints[4] = cv::Point3f(0, 0.3, 0.3);
+                drawPoints[5] = cv::Point3f(0.3, 0.3, 0.3);
+                drawPoints[6] = cv::Point3f(0.3, 0, 0.3);
+                drawPoints[7] = cv::Point3f(0.3, 0.3, 0);
 
 
 
@@ -222,18 +231,22 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
 //                    drawPoints[i].z += centroid.at<float>(2,0);
 //                }
 
-                for(int row = 0 ; row < 4;row++){
-                    LOGE(" Plane2Camera %f %f %f %f",Plane2Camera.at<float>(row,0),Plane2Camera.at<float>(row,1),Plane2Camera.at<float>(row,2),Plane2Camera.at<float>(row,3));
+                for (int row = 0; row < 4; row++) {
+                    LOGGER(" Plane2Camera %f %f %f %f", Plane2Camera.at<float>(row, 0),
+                         Plane2Camera.at<float>(row, 1), Plane2Camera.at<float>(row, 2),
+                         Plane2Camera.at<float>(row, 3));
                 }
-                cv::Mat Rcp ,Tcp;
-                cv::Rodrigues(Plane2Camera.rowRange(0,3).colRange(0,3),Rcp);
-                LOGE(" rwp %f %f %f",Rcp.at<float>(0,0),Rcp.at<float>(1,0),Rcp.at<float>(2,2));
+                cv::Mat Rcp, Tcp;
+                cv::Rodrigues(Plane2Camera.rowRange(0, 3).colRange(0, 3), Rcp);
+                LOGGER(" rwp %f %f %f", Rcp.at<float>(0, 0), Rcp.at<float>(1, 0),
+                     Rcp.at<float>(2, 2));
 
-                Tcp = Plane2Camera.col(3).rowRange(0,3);
-                LOGE("Tcp %f %f %f",Tcp.at<float>(0,0),Tcp.at<float>(1,0),Tcp.at<float>(2,0));
+                Tcp = Plane2Camera.col(3).rowRange(0, 3);
+                LOGGER("Tcp %f %f %f", Tcp.at<float>(0, 0), Tcp.at<float>(1, 0), Tcp.at<float>(2, 0));
 //                cv::Rodrigues(pose.rowRange(0,3).colRange(0,3),Rcp);
 //                Tcp = pose.col(3).rowRange(0,3);
-                cv::projectPoints(drawPoints, Rcp, Tcp, SLAM.mpTracker->mK, SLAM.mpTracker->mDistCoef, projectedPoints);
+                cv::projectPoints(drawPoints, Rcp, Tcp, SLAM.mpTracker->mK,
+                                  SLAM.mpTracker->mDistCoef, projectedPoints);
 
 //                cv::line(*pMat, projectedPoints[0],projectedPoints[1], cv::Scalar(250, 0, 0), 5); //画X轴 红色
 //                cv::line(*pMat, projectedPoints[0],projectedPoints[2], cv::Scalar(0, 250, 0), 5);//画Z轴  绿色
@@ -255,31 +268,50 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
         }
     }
 
-    switch(SLAM.GetTrackingState()) {
-        case -1: {cv::putText(*pMat, "SYSTEM NOT READY", cv::Point(0,400), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,0,0),2); }break;
-        case 0:  {cv::putText(*pMat, "NO IMAGES YET", cv::Point(0,400), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,0,0),2); }break;
-        case 1:  {cv::putText(*pMat, "SLAM NOT INITIALIZED", cv::Point(0,400), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,0,0),2); }break;
-        case 2:  {cv::putText(*pMat, "SLAM ON", cv::Point(0,400), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0,255,0),2); break;}
-        case 3:  {cv::putText(*pMat, "SLAM LOST", cv::Point(0,400), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,0,0), 2); break;}
-        default:break;
+    switch (SLAM.GetTrackingState()) {
+        case -1: {
+            cv::putText(*pMat, "SYSTEM NOT READY", cv::Point(0, 400), cv::FONT_HERSHEY_SIMPLEX, 0.5,
+                        cv::Scalar(255, 0, 0), 2);
+        }
+            break;
+        case 0: {
+            cv::putText(*pMat, "NO IMAGES YET", cv::Point(0, 400), cv::FONT_HERSHEY_SIMPLEX, 0.5,
+                        cv::Scalar(255, 0, 0), 2);
+        }
+            break;
+        case 1: {
+            cv::putText(*pMat, "SLAM NOT INITIALIZED", cv::Point(0, 400), cv::FONT_HERSHEY_SIMPLEX,
+                        0.5, cv::Scalar(255, 0, 0), 2);
+        }
+            break;
+        case 2: {
+            cv::putText(*pMat, "SLAM ON", cv::Point(0, 400), cv::FONT_HERSHEY_SIMPLEX, 0.5,
+                        cv::Scalar(0, 255, 0), 2);
+            break;
+        }
+        case 3: {
+            cv::putText(*pMat, "SLAM LOST", cv::Point(0, 400), cv::FONT_HERSHEY_SIMPLEX, 0.5,
+                        cv::Scalar(255, 0, 0), 2);
+            break;
+        }
+        default:
+            break;
     }
 
 
-    /**将得到的相机位姿矩阵返回到java代码，以便后面更新opengl相机位姿**/
-    cv::Mat ima=pose;
+    /**Return the resulting camera pose matrix to the java code to update the opengl camera pose later.**/
+    cv::Mat ima = pose;
     jfloatArray resultArray = env->NewFloatArray(ima.rows * ima.cols);
     jfloat *resultPtr;
 
     resultPtr = env->GetFloatArrayElements(resultArray, 0);
     for (int i = 0; i < ima.rows; i++)
         for (int j = 0; j < ima.cols; j++) {
-            float tempdata=ima.at<float>(i,j);
-            resultPtr[i * ima.rows + j] =tempdata;
+            float tempdata = ima.at<float>(i, j);
+            resultPtr[i * ima.rows + j] = tempdata;
         }
     env->ReleaseFloatArrayElements(resultArray, resultPtr, 0);
-   return resultArray;
-
-    LOGE("Native Finished");
+    return resultArray;
 #endif
 }
 
