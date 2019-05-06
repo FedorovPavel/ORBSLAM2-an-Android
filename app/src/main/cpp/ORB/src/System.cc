@@ -29,10 +29,9 @@
 #include<ctime>
 #include <android/log.h>
 
-#define  LOG_TAG    "system.cc@@@native-dev"
-#define  LOGI(...)  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-#define LOGE(...)  __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
-#define LOGW(...)  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOG_TAG    "system.cc@@@native-dev"
+#define LOG_LEVEL ANDROID_LOG_INFO
+#define LOGGER(...)  __android_log_print(LOG_LEVEL, LOG_TAG, __VA_ARGS__)
 
 namespace ORB_SLAM2 {
 
@@ -48,10 +47,10 @@ namespace ORB_SLAM2 {
              "under certain conditions. See LICENSE.txt." << endl << endl;
 
         cout << "Input sensor was set to: ";
-        LOGI("Initiate ORBSLAM2  System================\nInput sensor was set to: ");
+        LOGGER("Initiate ORB-SLAM2  System================\nInput sensor was set to: ");
 
         if (mSensor == MONOCULAR) {
-            LOGI("Monocular");
+            LOGGER("Monocular");
             cout << "Monocular" << endl;
         } else if (mSensor == STEREO)
             cout << "Stereo" << endl;
@@ -61,62 +60,57 @@ namespace ORB_SLAM2 {
         //Check settings file
         cv::FileStorage fsSettings(strSettingsFile.c_str(), cv::FileStorage::READ);
         if (!fsSettings.isOpened()) {
-//      cerr << "Failed to open settings file at: " << strSettingsFile << endl;
-
-            LOGE("Failed to open settings file at: %s", strSettingsFile.c_str());
+            LOGGER("Failed to open settings file at: %s", strSettingsFile.c_str());
             return;
-
         }
 
-
         //Load ORB Vocabulary
-        // cout << endl << "Loading ORB Vocabulary. This could take a while..." << endl;
-        LOGI("Loading ORB Vocabulary. This could take a while...");
-
+        LOGGER("Loading ORB Vocabulary. This could take a while...");
 
         mpVocabulary = new ORBVocabulary();
         // bool bVocLoad = mpVocabulary->loadFromTextFile(strVocFile);
         bool bVocLoad = mpVocabulary->loadFromBinaryFile(strVocFile);
+
         if (!bVocLoad) {
-            LOGE("Wrong path to vocabulary. ");
-            LOGE("Falied to open at: ");
+            LOGGER("Wrong path to vocabulary. ");
+            LOGGER("Falied to open at: ");
             return;
         }
-        LOGI("Vocabulary loaded using binary file!========================================");
 
+        LOGGER("Vocabulary loaded using binary file!");
 
         //Create KeyFrame Database
         mpKeyFrameDatabase = new KeyFrameDatabase(*mpVocabulary);
-        LOGI("Create KeyFrame Database========================================");
+        LOGGER("Create KeyFrame Database");
+
         //Create the Map
         mpMap = new Map();
-        LOGI("Create the Map========================================");
+        LOGGER("Create the Map");
 
-//    Create Drawers. These are used by the Viewer
-//    mpFrameDrawer = new FrameDrawer(mpMap);
-//    mpMapDrawer = new MapDrawer(mpMap, strSettingsFile);
+        //    Create Drawers. These are used by the Viewer
+        //    mpFrameDrawer = new FrameDrawer(mpMap);
+        //    mpMapDrawer = new MapDrawer(mpMap, strSettingsFile);
 
         //Initialize the Tracking thread
         //(it will live in the main thread of execution, the one that called this constructor)
-        mpTracker = new Tracking(this, mpVocabulary, mpFrameDrawer, mpMapDrawer,
-                                 mpMap, mpKeyFrameDatabase, strSettingsFile, mSensor);
+        mpTracker = new Tracking(this, mpVocabulary, mpFrameDrawer, mpMapDrawer, mpMap,
+                    mpKeyFrameDatabase, strSettingsFile, mSensor);
 
         //Initialize the Local Mapping thread and launch
         mpLocalMapper = new LocalMapping(mpMap, mSensor == MONOCULAR);
         mptLocalMapping = new thread(&ORB_SLAM2::LocalMapping::Run, mpLocalMapper);
 
         //Initialize the Loop Closing thread and launch
-        mpLoopCloser = new LoopClosing(mpMap, mpKeyFrameDatabase, mpVocabulary,
-                                       mSensor != MONOCULAR);
+        mpLoopCloser = new LoopClosing(mpMap, mpKeyFrameDatabase, mpVocabulary, mSensor != MONOCULAR);
         mptLoopClosing = new thread(&ORB_SLAM2::LoopClosing::Run, mpLoopCloser);
 
-//Initialize the Viewer thread and launch
-//    if(bUseViewer)
-//    {
-//        mpViewer = new Viewer(this, mpFrameDrawer,mpMapDrawer,mpTracker,strSettingsFile);
-//        mptViewer = new thread(&Viewer::Run, mpViewer);
-//        mpTracker->SetViewer(mpViewer);
-//    }
+        //Initialize the Viewer thread and launch
+        //    if(bUseViewer)
+        //    {
+        //        mpViewer = new Viewer(this, mpFrameDrawer,mpMapDrawer,mpTracker,strSettingsFile);
+        //        mptViewer = new thread(&Viewer::Run, mpViewer);
+        //        mpTracker->SetViewer(mpViewer);
+        //    }
 
         //Set pointers between threads
         mpTracker->SetLocalMapper(mpLocalMapper);
@@ -127,13 +121,13 @@ namespace ORB_SLAM2 {
 
         mpLoopCloser->SetTracker(mpTracker);
         mpLoopCloser->SetLocalMapper(mpLocalMapper);
-        LOGI("ORB_SLAM system initialization finished========================================");
+        LOGGER("ORB_SLAM system initialization finished\n========================================");
     }
 
 
     cv::Mat System::TrackMonocular(cv::Mat &im, const double &timestamp) {
         if (mSensor != MONOCULAR) {
-            LOGE("ERROR: you called TrackMonocular but input sensor was not set to Monocular.");
+            LOGGER("ERROR: you called TrackMonocular but input sensor was not set to Monocular.");
             cv::Mat nothing;
             return nothing;
         }
@@ -142,19 +136,19 @@ namespace ORB_SLAM2 {
         {
             unique_lock<mutex> lock(mMutexMode);
             if (mbActivateLocalizationMode) {
-                LOGE("Request Stop !!!");
+                LOGGER("Request Stop !!!");
                 mpLocalMapper->RequestStop();
 
                 // Wait until Local Mapping has effectively stopped
                 while (!mpLocalMapper->isStopped()) {
                     usleep(1000);
                 }
-                LOGE("Only Tracking !!!!");
+                LOGGER("Only Tracking !!!!");
                 mpTracker->InformOnlyTracking(true);
                 mbActivateLocalizationMode = false;
             }
             if (mbDeactivateLocalizationMode) {
-                LOGE("Deactiveate Localize !!!!");
+                LOGGER("Deactiveate Localize !!!!");
                 mpTracker->InformOnlyTracking(false);
                 mpLocalMapper->Release();
                 mbDeactivateLocalizationMode = false;
@@ -165,18 +159,18 @@ namespace ORB_SLAM2 {
         {
             unique_lock<mutex> lock(mMutexReset);
             if (mbReset) {
-                LOGE("Reset !!");
+                LOGGER("Reset !!");
                 mpTracker->Reset();
                 mbReset = false;
             }
         }
 
         clock_t frame_start, frame_end;
-        LOGI("Start Grab Image Monocular !!===========================================");
+        LOGGER("Start Grab Image Monocular!!");
         frame_start = clock();
         cv::Mat Tcw = mpTracker->GrabImageMonocular(im, timestamp);
         frame_end = clock();
-        LOGE("oneFrame total Use Time=%f\n", ((double) frame_end - frame_start) / CLOCKS_PER_SEC);
+        LOGGER("oneFrame total Use Time=%f\n", ((double) frame_end - frame_start) / CLOCKS_PER_SEC);
 
         unique_lock<mutex> lock2(mMutexState);
         mTrackingState = mpTracker->mState;
@@ -184,8 +178,7 @@ namespace ORB_SLAM2 {
         mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvKeysUn;
 
 
-        LOGE("Track  Monocular finished!!!!");
-
+        LOGGER("Track  Monocular finished!!!!");
         return Tcw;
     }
 
@@ -337,6 +330,7 @@ namespace ORB_SLAM2 {
 //        pangolin::BindToContext("ORB-SLAM2: Map Viewer");
     }
 
+/*  At not this functions unused
     void System::SaveTrajectoryTUM(const string &filename) {
         cout << endl << "Saving camera trajectory to " << filename << " ..." << endl;
         if (mSensor == MONOCULAR) {
@@ -486,6 +480,7 @@ namespace ORB_SLAM2 {
         f.close();
         cout << endl << "trajectory saved!" << endl;
     }
+*/
 
     int System::GetTrackingState() {
         unique_lock<mutex> lock(mMutexState);
