@@ -9,5 +9,5 @@
 .externalNativeBuild
 /.vscode/
 /.idea/caches
-/openCVLibrary320/build/
+/openCVLibrary320/build
 /openCVLibrary320/build/intermediates/incremental/mergeDebugShaders/merger.xml
