@@ -2,12 +2,16 @@ package com.example.ys.orbtest;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.PixelFormat;
+import android.hardware.SensorEvent;
 import android.opengl.GLSurfaceView;
 import android.os.Bundle;
 import android.support.v4.app.ActivityCompat;
 import android.util.Log;
+import android.hardware.Sensor;
+import android.hardware.SensorManager;
 import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.SurfaceView;
@@ -40,6 +44,7 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
     private TextView myTextView;
     public static double SCALE = 1;
     private static long count = 0;
+    private imuController sensor;
 
 
     private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
@@ -89,6 +94,10 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
         } catch (Exception e) {
             System.out.println(e.getMessage());
         }
+
+        SensorManager manager = (SensorManager)getSystemService(SENSOR_SERVICE);
+        sensor = new imuController(this, manager);
+
 
         mOpenCvCameraView = (CameraBridgeViewBase) findViewById(R.id.tutorial1_activity_java_surface_view);
         mOpenCvCameraView.setMaxFrameSize(640, 480);
@@ -210,8 +219,8 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
         return;
     }
 
-    private native float[] CVTest(long matAddr); //Calling c++ code
-
+//    private native float[] CVTest(long matAddr); //Calling c++ code
+    private native float[] CVTest(long matAddr, long rtAddr);
 
     /**
      * The function that processes the image.
@@ -221,8 +230,11 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
      * @return
      */
     public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
+
         Mat rgb = inputFrame.rgba();
-        float[] poseMatrix = CVTest(rgb.getNativeObjAddr()); //Slam system obtains camera pose matrix
+        Mat RT = sensor.GetSensorData();
+
+        float[] poseMatrix = CVTest(rgb.getNativeObjAddr(), RT.getNativeObjAddr()); //Slam system obtains camera pose matrix
 
         if (poseMatrix.length != 0) {
             double[][] pose = new double[4][4];
