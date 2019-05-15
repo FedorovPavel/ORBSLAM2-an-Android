@@ -94,10 +94,10 @@ public class imuController extends FrameLayout implements SensorEventListener {
 
 
     public void Start() {
-        manager.registerListener(this, mGyroscope, SensorManager.SENSOR_STATUS_ACCURACY_LOW);
-        manager.registerListener(this, mAccelerometer, SensorManager.SENSOR_STATUS_ACCURACY_LOW);
-        manager.registerListener(this, mMagnetrometer, SensorManager.SENSOR_STATUS_ACCURACY_LOW);
-        manager.registerListener(this, mLinearAccelerometer, SensorManager.SENSOR_STATUS_ACCURACY_LOW);
+        manager.registerListener(this, mGyroscope, SensorManager.SENSOR_DELAY_FASTEST);
+        manager.registerListener(this, mAccelerometer, SensorManager.SENSOR_DELAY_FASTEST);
+        manager.registerListener(this, mMagnetrometer, SensorManager.SENSOR_DELAY_FASTEST);
+        manager.registerListener(this, mLinearAccelerometer, SensorManager.SENSOR_DELAY_FASTEST);
     }
 
     public void Stop() {
@@ -117,18 +117,34 @@ public class imuController extends FrameLayout implements SensorEventListener {
             AccelData[0] = -event.values[1];
             AccelData[1] = -event.values[0];
             AccelData[2] = event.values[2];
+            for (int i = 0; i < AccelData.length; i++) {
+                if (Math.abs(AccelData[i]) < 0.0012f) {
+                    AccelData[i] = 0.0f;
+                }
+            }
+
             AccelUpdate = true;
         }
         else if (event.sensor.getType() == Sensor.TYPE_GYROSCOPE) {
-            GyroData[0] = -event.values[1];
-            GyroData[1] = -event.values[0];
+            GyroData[0] = event.values[1];
+            GyroData[1] = event.values[0];
             GyroData[2] = event.values[2];
+            for (int i = 0; i < GyroData.length; i++) {
+                if (Math.abs(GyroData[i]) < 0.0011f) {
+                    GyroData[i] = 0.0f;
+                }
+            }
             GyroUpdate = true;
         }
         else if (event.sensor.getType() == Sensor.TYPE_MAGNETIC_FIELD) {
-            MagnetData[0] = -event.values[1];
-            MagnetData[1] = -event.values[0];
+            MagnetData[0] = event.values[1];
+            MagnetData[1] = event.values[0];
             MagnetData[2] = event.values[2];
+            for (int i = 0; i < MagnetData.length; i++) {
+                if (Math.abs(MagnetData[i]) < 0.15f) {
+                    MagnetData[i] = 0.0f;
+                }
+            }
             MagnetUpdate = true;
         } else if (event.sensor.getType() == Sensor.TYPE_LINEAR_ACCELERATION) {
             Position.Update(event.values[0], event.values[1], event.values[2], event.timestamp);
@@ -247,10 +263,15 @@ public class imuController extends FrameLayout implements SensorEventListener {
         public float Beta;
         public float[] Quaternion;
         private Semaphore lock;
+        public float[] matrix;
 
         public AHRS(float beta) {
             this.Beta = beta;
             this.Quaternion = new float[4];
+            matrix = new float[9];
+            matrix[0] = 1;
+            matrix[4] = 1;
+            matrix[8] = 1;
             lock = new Semaphore(1);
             Reset();
         }
@@ -269,7 +290,7 @@ public class imuController extends FrameLayout implements SensorEventListener {
         }
 
         public float[] GetRotation() {
-            float [] matrix = new float[9];
+            float [] rmatrix = new float[9];
             try {
                 lock.acquire();
 
@@ -278,22 +299,22 @@ public class imuController extends FrameLayout implements SensorEventListener {
                 float y = Quaternion[2];
                 float z = Quaternion[3];
 
-                matrix[0] = 1f - 2f * y * y - 2f * z * z;
-                matrix[1] = 2f * x * y - 2f * z * w;
-                matrix[2] = 2f * x * z + 2f * y * w;
+                rmatrix[0] = 1f - 2f * y * y - 2f * z * z;
+                rmatrix[1] = 2f * x * y - 2f * z * w;
+                rmatrix[2] = 2f * x * z + 2f * y * w;
 
-                matrix[3] = 2f * x * y + 2f * z * w;
-                matrix[4] = 1f - 2f * x * x - 2f * z * z;
-                matrix[5] = 2f * y * z - 2f * x * w;
+                rmatrix[3] = 2f * x * y + 2f * z * w;
+                rmatrix[4] = 1f - 2f * x * x - 2f * z * z;
+                rmatrix[5] = 2f * y * z - 2f * x * w;
 
-                matrix[6] = 2f * x * z - 2f * y * w;
-                matrix[7] = 2f * y * z + 2f * x * w;
-                matrix[8] = 1 - 2f * x * x - 2f * y * y;
+                rmatrix[6] = 2f * x * z - 2f * y * w;
+                rmatrix[7] = 2f * y * z + 2f * x * w;
+                rmatrix[8] = 1 - 2f * x * x - 2f * y * y;
                 lock.release();
             } catch (InterruptedException err) {}
 
 
-            return matrix;
+            return rmatrix;
         }
 
         public void Update(float[] a, float[] g, float[] m, long time) {
@@ -415,9 +436,70 @@ public class imuController extends FrameLayout implements SensorEventListener {
                 Quaternion[1] = q2 * norm;
                 Quaternion[2] = q3 * norm;
                 Quaternion[3] = q4 * norm;
+
+                prevTime = time;
+//                float [] deltaRotationVector = new float[4];
+//                float dT = (prevTime - time) * 1.0f / 1000000000.0f;
+//                // Axis of the rotation sample, not normalized yet.
+//                float axisX = g[0];
+//                float axisY = g[1];
+//                float axisZ = g[2];
+//                if (Math.abs(axisX) < 0.0011f) {
+//                    axisX = 0f;
+//                }
+//                if (Math.abs(axisY) < 0.0011f) {
+//                    axisY = 0f;
+//                }
+//                if (Math.abs(axisZ) < 0.0011f) {
+//                    axisZ = 0f;
+//                }
+//
+//                // Calculate the angular speed of the sample
+//                float omegaMagnitude = (float)Math.sqrt(axisX*axisX + axisY*axisY + axisZ*axisZ);
+//
+//                // Normalize the rotation vector if it's big enough to get the axis
+//                // (that is, EPSILON should represent your maximum allowable margin of error)
+//                if (omegaMagnitude > 0.000000001f) {
+//                    axisX /= omegaMagnitude;
+//                    axisY /= omegaMagnitude;
+//                    axisZ /= omegaMagnitude;
+//                }
+//
+//                // Integrate around this axis with the angular speed by the timestep
+//                // in order to get a delta rotation from this sample over the timestep
+//                // We will convert this axis-angle representation of the delta rotation
+//                // into a quaternion before turning it into the rotation matrix.
+//                float thetaOverTwo = omegaMagnitude * dT / 2.0f;
+//                float sinThetaOverTwo = (float)Math.sin(thetaOverTwo);
+//                float cosThetaOverTwo = (float)Math.cos(thetaOverTwo);
+//                deltaRotationVector[0] = sinThetaOverTwo * axisX;
+//                deltaRotationVector[1] = sinThetaOverTwo * axisY;
+//                deltaRotationVector[2] = sinThetaOverTwo * axisZ;
+//                deltaRotationVector[3] = cosThetaOverTwo;
+//
+//                float[] deltaRotationMatrix = new float[9];
+//                SensorManager.getRotationMatrixFromVector(deltaRotationMatrix, deltaRotationVector);
+//
+//                // mul matrix
+//                float[] temp = new float[9];
+//                for (int i = 0; i < temp.length; i++) {
+//                    temp[i] = matrix[i];
+//                }
+//
+//                for (int i = 0; i < 3; i++) {
+//                    for (int j = 0; j < 3; j++) {
+//                        matrix[i*3 + j] = 0;
+//                        for (int k = 0; k < 3; k++) {
+//                            matrix[i*3 + j] += temp[i * 3 + k] * deltaRotationMatrix[3*k + j];
+//                        }
+//                    }
+//                }
+
                 lock.release();
             } catch (InterruptedException err) {}
             return;
         }
+
+
     }
 }
