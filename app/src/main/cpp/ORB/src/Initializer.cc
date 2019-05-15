@@ -43,7 +43,7 @@ Initializer::Initializer(const Frame &ReferenceFrame, float sigma, int iteration
 
     mvKeys1 = ReferenceFrame.mvKeysUn;
 
-    mSigma = sigma;//sigam参数是1.0
+    mSigma = sigma;//sigma equal 1.0
     mSigma2 = sigma*sigma;
     mMaxIterations = iterations;
 }
@@ -84,22 +84,21 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
     // Generate sets of 8 points for each RANSAC iteration
     mvSets = vector< vector<size_t> >(mMaxIterations,vector<size_t>(8,0));
 
-    DUtils::Random::SeedRandOnce(0);//其实就是srand(0),为随机器分配种子
+    DUtils::Random::SeedRandOnce(0); //In fact, it is srand(0), which assigns seeds to the randomizer.
 
-    for(int it=0; it<mMaxIterations; it++)  //随机选取200组，每组8个点
+    for(int it=0; it<mMaxIterations; it++)  //Randomly select 200 groups of 8 points each
     {
         vAvailableIndices = vAllIndices;
 
         // Select a minimum set
         for(size_t j=0; j<8; j++)
         {
-            int randi = DUtils::Random::RandomInt(0,vAvailableIndices.size()-1);//所有mvMatches12的索引取随机
-            LOGI("randi = %d",randi);
+            int randi = DUtils::Random::RandomInt(0,vAvailableIndices.size()-1);//All mvMatches12 indexes are taken randomly
             int idx = vAvailableIndices[randi];
 
             mvSets[it][j] = idx;
 
-            vAvailableIndices[randi] = vAvailableIndices.back(); //把末尾的值放到randi处，然后删除末尾值，其实相当于删除randi处的值
+            vAvailableIndices[randi] = vAvailableIndices.back(); //Put the last value at randi, then delete the last value, which is equivalent to deleting the value at randi
             vAvailableIndices.pop_back();
         }
     }
@@ -117,7 +116,7 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
     threadF.join();
 
     // Compute ratio of scores
-    float RH = SH/(SH+SF);      //H得分占总得分的百分比大于0.4就用H模型初始化
+    float RH = SH/(SH+SF);      //The H score is greater than 0.4 of the total score and is initialized with the H model.
 
     LOGE(" RH RATE = %f",RH);
 
@@ -172,7 +171,7 @@ void Initializer::FindHomography(vector<bool> &vbMatchesInliers, float &score, c
 
         currentScore = CheckHomography(H21i, H12i, vbCurrentInliers, mSigma);
 
-        //保留得分最高的H21
+        //Keep the highest score of H21
         if(currentScore>score)
         {
             H21 = H21i.clone();
@@ -218,13 +217,13 @@ void Initializer::FindFundamental(vector<bool> &vbMatchesInliers, float &score, 
             vPn2i[j] = vPn2[mvMatches12[idx].second];
         }
 
-        cv::Mat Fn = ComputeF21(vPn1i,vPn2i); //计算F'
+        cv::Mat Fn = ComputeF21(vPn1i,vPn2i); //Calculate F'
 
         F21i = T2t*Fn*T1;   //
 
         currentScore = CheckFundamental(F21i, vbCurrentInliers, mSigma);
 
-        if(currentScore>score)  //保留最高分的F'
+        if(currentScore>score)  //Keep the highest score of F'
         {
             F21 = F21i.clone();
             vbMatchesInliers = vbCurrentInliers;
@@ -246,11 +245,11 @@ cv::Mat Initializer::ComputeH21(const vector<cv::Point2f> &vP1, const vector<cv:
         const float v1 = vP1[i].y;
         const float u2 = vP2[i].x;
         const float v2 = vP2[i].y;
-        /* 矩阵A
+        /* Matrix A
          *      |   0   0   0   -x1 -y1 -1  x1*y2   y1*y2   y2  |
          *      |   x1  y1  1   0   0   0   -x1*x2  y1*x2   -y2 |
          *
-         *     A*h=0    SVD分解最小特征值对应的特征向量即为h
+         *     A*h=0    The feature vector corresponding to the minimum eigenvalue of the SVD decomposition is h
          *
          * */
         A.at<float>(2*i,0) = 0.0;
@@ -310,13 +309,13 @@ cv::Mat Initializer::ComputeF21(const vector<cv::Point2f> &vP1,const vector<cv::
 
     cv::SVDecomp(A,w,u,vt,cv::SVD::MODIFY_A | cv::SVD::FULL_UV);
 
-    cv::Mat Fpre = vt.row(8).reshape(0, 3);     //V的最后一列为最小特征值对应的特征向量即为Af=0的解F
+    cv::Mat Fpre = vt.row(8).reshape(0, 3);     //The last column of V is the eigenvector corresponding to the smallest eigenvalue, which is the solution F of Af=0.
 
-    cv::SVDecomp(Fpre,w,u,vt,cv::SVD::MODIFY_A | cv::SVD::FULL_UV); //对F进行SVD分解
+    cv::SVDecomp(Fpre,w,u,vt,cv::SVD::MODIFY_A | cv::SVD::FULL_UV); //SVD decomposition of F
 
-    w.at<float>(2)=0;       //添加奇异性约束
+    w.at<float>(2)=0;       //Add singularity constraints
 
-    return  u*cv::Mat::diag(w)*vt;  //返回F'
+    return  u*cv::Mat::diag(w)*vt;  //Return F'
 }
 
 float Initializer::CheckHomography(const cv::Mat &H21, const cv::Mat &H12, vector<bool> &vbMatchesInliers, float sigma)
@@ -613,7 +612,7 @@ bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv:
     float d2 = w.at<float>(1);
     float d3 = w.at<float>(2);
 
-    if(d1/d2<1.00001 || d2/d3<1.00001)  //如果d1<d2或d2<d3
+    if(d1/d2<1.00001 || d2/d3<1.00001)  //If d1<d2 or d2<d3
     {
         return false;
     }
@@ -623,19 +622,19 @@ bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv:
     vt.reserve(8);
     vn.reserve(8);
 
-    //对应吴博ppt的公式17
+    //Corresponding to the formula of Wu Bo ppt 17
     //n'=[x1 0 x3] 4 posibilities e1=e3=1, e1=1 e3=-1, e1=-1 e3=1, e1=e3=-1
     float aux1 = sqrt((d1*d1-d2*d2)/(d1*d1-d3*d3));
     float aux3 = sqrt((d2*d2-d3*d3)/(d1*d1-d3*d3));
     float x1[] = {aux1,aux1,-aux1,-aux1};
     float x3[] = {aux3,-aux3,aux3,-aux3};
 
-    //对应吴博ppt的公式19
-    //case d'=d2
+    //Corresponding to Wu Bo ppt's formula 19
+    //Case d'=d2
     float aux_stheta = sqrt((d1*d1-d2*d2)*(d2*d2-d3*d3))/((d1+d3)*d2);  //sin
 
     float ctheta = (d2*d2+d1*d3)/((d1+d3)*d2);  //cos
-    float stheta[] = {aux_stheta, -aux_stheta, -aux_stheta, aux_stheta};//与上面x1[],x3[]对应
+    float stheta[] = {aux_stheta, -aux_stheta, -aux_stheta, aux_stheta};//Corresponds to x1[], x3[] above
 
     for(int i=0; i<4; i++)
     {
@@ -721,6 +720,7 @@ bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv:
         float parallaxi;
         vector<cv::Point3f> vP3Di;
         vector<bool> vbTriangulatedi;
+        //  #RECONSTUCTION
         int nGood = CheckRT(vR[i],vt[i],mvKeys1,mvKeys2,mvMatches12,vbMatchesInliers,K,vP3Di, 4.0*mSigma2, vbTriangulatedi, parallaxi);
 
         if(nGood>bestGood)
@@ -739,8 +739,8 @@ bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv:
     }
     LOGE("bestGood = %d  ,sencondBestGood = %d , bestParallax = %f , N = %d",bestGood,secondBestGood,bestParallax,N);
 
-    if(secondBestGood<0.75*bestGood && bestParallax>=minParallax && bestGood>minTriangulated && bestGood>0.9*N) //最小视差角为1度，最小三角化为15度
-//    if(secondBestGood<=bestGood && bestParallax>=minParallax && bestGood>minTriangulated && bestGood>0.9*N)
+//    if(secondBestGood<0.75*bestGood && bestParallax>=minParallax && bestGood>minTriangulated && bestGood>0.9*N) //The minimum parallax angle is 1 degree and the minimum triangulation is 15 degrees.
+    if(secondBestGood<=bestGood && bestParallax>=minParallax && bestGood>minTriangulated && bestGood>0.9*N)
     {
         vR[bestSolutionIdx].copyTo(R21);
         vt[bestSolutionIdx].copyTo(t21);
@@ -850,12 +850,13 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::Ke
     cv::Mat O1 = cv::Mat::zeros(3,1,CV_32F);
 
     // Camera 2 Projection Matrix K[R|t]
+    LOGI("R:\n%f\t%f\t%f\n%f\t%f\t%f\n%f\t%f\t%f",R.at<float>(0,0), R.at<float>(0,1), R.at<float>(0,2), R.at<float>(1,0), R.at<float>(1,1), R.at<float>(1,2), R.at<float>(2,0), R.at<float>(2,1), R.at<float>(2,2));
     cv::Mat P2(3,4,CV_32F);
     R.copyTo(P2.rowRange(0,3).colRange(0,3));
     t.copyTo(P2.rowRange(0,3).col(3));
     P2 = K*P2;
 
-    cv::Mat O2 = -R.t()*t;      //R是从1到2
+    cv::Mat O2 = -R.t()*t;      //R is from 1 to 2
 
     int nGood=0;
 
@@ -872,21 +873,21 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::Ke
 
         LOGI("Triangulated Z = %f",p3dC1.at<float>(2));
 
-        if(!isfinite(p3dC1.at<float>(0)) || !isfinite(p3dC1.at<float>(1)) || !isfinite(p3dC1.at<float>(2))) //三个值都不是无穷
+        if(!isfinite(p3dC1.at<float>(0)) || !isfinite(p3dC1.at<float>(1)) || !isfinite(p3dC1.at<float>(2))) //Three values are not infinite
         {
             vbGood[vMatches12[i].first]=false;
             continue;
         }
 
         // Check parallax
-        cv::Mat normal1 = p3dC1 - O1;       //相机1光心指向空间点的向量
-        float dist1 = cv::norm(normal1);    //向量长度
+        cv::Mat normal1 = p3dC1 - O1;       //Camera 1 light center pointing to the space point vector
+        float dist1 = cv::norm(normal1);    //Vector length
 
-        cv::Mat normal2 = p3dC1 - O2;       //相机2光心指向空间点的向量
-        float dist2 = cv::norm(normal2);    //向量长度
+        cv::Mat normal2 = p3dC1 - O2;       //Camera 2 light center pointing to the space point vector
+        float dist2 = cv::norm(normal2);    //Vector length
 
-        float cosParallax = normal1.dot(normal2)/(dist1*dist2); //两向量夹角cos
-        LOGI("cosParallax = %f",cosParallax);   //cosParallax基本都小于0.99998
+        float cosParallax = normal1.dot(normal2)/(dist1*dist2); //Two vector angle cos
+        LOGI("cosParallax = %f",cosParallax);   //CosParallax is basically less than 0.99998
 
         // Check depth in front of first camera (only if enough parallax, as "infinite" points can easily go to negative depth)
         if(p3dC1.at<float>(2)<=0 && cosParallax<0.99998)
@@ -904,7 +905,7 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::Ke
         im1x = fx*p3dC1.at<float>(0)*invZ1+cx;
         im1y = fy*p3dC1.at<float>(1)*invZ1+cy;
 
-        float squareError1 = (im1x-kp1.pt.x)*(im1x-kp1.pt.x)+(im1y-kp1.pt.y)*(im1y-kp1.pt.y);   //求第一帧的投影误差
+        float squareError1 = (im1x-kp1.pt.x)*(im1x-kp1.pt.x)+(im1y-kp1.pt.y)*(im1y-kp1.pt.y);   //Find the projection error of the first frame
 
         if(squareError1>th2)        //th2 = 4
             continue;
@@ -915,7 +916,7 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::Ke
         im2x = fx*p3dC2.at<float>(0)*invZ2+cx;
         im2y = fy*p3dC2.at<float>(1)*invZ2+cy;
 
-        float squareError2 = (im2x-kp2.pt.x)*(im2x-kp2.pt.x)+(im2y-kp2.pt.y)*(im2y-kp2.pt.y);   //第二帧重投影误差
+        float squareError2 = (im2x-kp2.pt.x)*(im2x-kp2.pt.x)+(im2y-kp2.pt.y)*(im2y-kp2.pt.y);   //Second frame reprojection error
 
         if(squareError2>th2)
             continue;
@@ -930,11 +931,11 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::Ke
 
     if(nGood>0)
     {
-        // 从小到大排序
+        // Sort from small to large
         sort(vCosParallax.begin(),vCosParallax.end());
 
-        // trick! 排序后并没有取最大的视差角
-        // 取一个较大的视差角
+        // trick! does not take the largest parallax angle after sorting
+        // take a larger parallax angle
         size_t idx = min(50,int(vCosParallax.size()-1));
         parallax = acos(vCosParallax[idx])*180/CV_PI;
     }
