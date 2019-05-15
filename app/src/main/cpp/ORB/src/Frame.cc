@@ -179,9 +179,9 @@ Frame::Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeSt
 }
 
 
-Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth)
+Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth, const cv::Mat &rt)
     :mpORBvocabulary(voc),mpORBextractorLeft(extractor),mpORBextractorRight(static_cast<ORBextractor*>(NULL)),
-     mTimeStamp(timeStamp), mK(K.clone()),mDistCoef(distCoef.clone()), mbf(bf), mThDepth(thDepth)
+     mTimeStamp(timeStamp), mK(K.clone()),mDistCoef(distCoef.clone()), mbf(bf), mThDepth(thDepth), RT(rt.clone())
 {
     // Frame ID
     mnId=nNextId++;
@@ -220,11 +220,11 @@ Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extra
     // This is done only for the first Frame (or after a change in the calibration)
     if(mbInitialComputations)
     {
-        // 计算畸变矫正之后的边界.
+        // Calculate the boundary after distortion correction.
         ComputeImageBounds(imGray);
 
-        mfGridElementWidthInv=static_cast<float>(FRAME_GRID_COLS)/static_cast<float>(mnMaxX-mnMinX);//每一格所占的宽的大小的倒数
-        mfGridElementHeightInv=static_cast<float>(FRAME_GRID_ROWS)/static_cast<float>(mnMaxY-mnMinY);//。。。。。高。。。。。。
+        mfGridElementWidthInv=static_cast<float>(FRAME_GRID_COLS)/static_cast<float>(mnMaxX-mnMinX);//The reciprocal of the width of each cell
+        mfGridElementHeightInv=static_cast<float>(FRAME_GRID_ROWS)/static_cast<float>(mnMaxY-mnMinY);//The reciprocal of the height of each cell
 
         fx = K.at<float>(0,0);
         fy = K.at<float>(1,1);
@@ -245,7 +245,7 @@ Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extra
 
 void Frame::AssignFeaturesToGrid()
 {
-    int nReserve = 0.5f*N/(FRAME_GRID_COLS*FRAME_GRID_ROWS); //每一个网格中点的个数，分成64*48个网格
+    int nReserve = 0.5f*N/(FRAME_GRID_COLS*FRAME_GRID_ROWS); //The number of points in each grid is divided into 64*48 grids
     for(unsigned int i=0; i<FRAME_GRID_COLS;i++)
         for (unsigned int j=0; j<FRAME_GRID_ROWS;j++)
             mGrid[i][j].reserve(nReserve);
@@ -343,43 +343,45 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
 }
 
 /**
- * @brief 找到在 以x,y为中心,边长为2r的方形内且在[minLevel, maxLevel]的特征点
- * @param x        图像坐标u
- * @param y        图像坐标v
- * @param r        边长
- * @param minLevel 最小尺度
- * @param maxLevel 最大尺度
- * @return         满足条件的特征点的序号
- */
-//预先假设当前帧与参考帧之间的的特征点相差在一个r*r的窗口内，将传入点所在窗口内的特征点的索引返回出去
+  * @brief finds the feature point in [minLevel, maxLevel] in a square with a side length of 2r centered on x, y
+  * @param x image coordinates u
+  * @param y image coordinates v
+  * @param r side length
+  * @param minLevel minimum scale
+  * @param maxLevel maximum scale
+  * @return The number of the feature point that satisfies the condition
+  */
+//Presuppose that the feature points between the current frame and the reference frame are within a
+//window of r*r, and the index of the feature points in the window
+//where the incoming point is located is returned.
 vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const float  &r, const int minLevel, const int maxLevel) const
 {
     vector<size_t> vIndices;
     vIndices.reserve(N);
 
-    const int nMinCellX = max(0,(int)floor((x-mnMinX-r)*mfGridElementWidthInv));    //计算该点x-最小x-r在第几个格（共64格）
-    if(nMinCellX>=FRAME_GRID_COLS)                                                  //如果所在格大于64，返回空vector
+    const int nMinCellX = max(0,(int)floor((x-mnMinX-r)*mfGridElementWidthInv));    //Calculate the point x-min x-r in the first few cells (64 in total)
+    if(nMinCellX>=FRAME_GRID_COLS)                                                  //If the cell is greater than 64, return an empty vector
         return vIndices;
 
-    const int nMaxCellX = min((int)FRAME_GRID_COLS-1,(int)ceil((x-mnMinX+r)*mfGridElementWidthInv));    //计算该点x-最小x+r在第几个格（共64格）
+    const int nMaxCellX = min((int)FRAME_GRID_COLS-1,(int)ceil((x-mnMinX+r)*mfGridElementWidthInv));    //Calculate the point x-min x+r in the first few cells (64 in total)
     if(nMaxCellX<0)
         return vIndices;
 
-    const int nMinCellY = max(0,(int)floor((y-mnMinY-r)*mfGridElementHeightInv));       //同x
+    const int nMinCellY = max(0,(int)floor((y-mnMinY-r)*mfGridElementHeightInv));       //Same x
     if(nMinCellY>=FRAME_GRID_ROWS)
         return vIndices;
 
-    const int nMaxCellY = min((int)FRAME_GRID_ROWS-1,(int)ceil((y-mnMinY+r)*mfGridElementHeightInv));   //同x
+    const int nMaxCellY = min((int)FRAME_GRID_ROWS-1,(int)ceil((y-mnMinY+r)*mfGridElementHeightInv));   //Same x
     if(nMaxCellY<0)
         return vIndices;
 
-    const bool bCheckLevels = (minLevel>0) || (maxLevel>=0);    //Frame初始化的时候，minlevel和maxlevel都等于0   SearchByProjection时minlevel为预测层-1，maxlevel为预测层+1
+    const bool bCheckLevels = (minLevel>0) || (maxLevel>=0);    //When the frame is initialized, both minlevel and maxlevel are equal to 0. When SearchByProjection, minlevel is prediction layer-1, and maxlevel is prediction layer +1.
 
     for(int ix = nMinCellX; ix<=nMaxCellX; ix++)
     {
         for(int iy = nMinCellY; iy<=nMaxCellY; iy++)
         {
-            const vector<size_t> vCell = mGrid[ix][iy];         //vCell为ix iy区域内的特征点索引
+            const vector<size_t> vCell = mGrid[ix][iy];         //vCell is the feature point index in the ix iy area
             if(vCell.empty())
                 continue;
 
@@ -398,7 +400,7 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
                 const float distx = kpUn.pt.x-x;
                 const float disty = kpUn.pt.y-y;
 
-                if(fabs(distx)<r && fabs(disty)<r)              //如果该区域的原来点与传进来的点的横竖坐标距离小于r，则记录该点坐标
+                if(fabs(distx)<r && fabs(disty)<r)              //If the distance between the original point of the area and the point of the incoming point is less than r, the point coordinate is recorded.
                     vIndices.push_back(vCell[j]);
             }
         }
