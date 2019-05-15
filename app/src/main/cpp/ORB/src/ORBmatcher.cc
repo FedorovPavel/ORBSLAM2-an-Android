@@ -421,15 +421,16 @@ int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f
     {
         cv::KeyPoint kp1 = F1.mvKeysUn[i1];
         int level1 = kp1.octave;
-        if(level1>0)            //只用最底层金字塔
+        if(level1 > 0)            //Use only the lowest pyramid
             continue;
 
-        //求参考帧特征点在当前帧位置处，周围200*200区域内的特征点
+        //Find the feature points in the surrounding 200*200 area at the current frame position of the reference frame feature point
         vector<size_t> vIndices2 = F2.GetFeaturesInArea(vbPrevMatched[i1].x,vbPrevMatched[i1].y, windowSize,level1,level1);
 
         if(vIndices2.empty())
             continue;
 
+        //  ##ENDED
         cv::Mat d1 = F1.mDescriptors.row(i1);
 
         int bestDist = INT_MAX;
@@ -459,31 +460,31 @@ int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f
             }
         }
 
-        if(bestDist<=TH_LOW)//距离小于50
+        if(bestDist<=TH_LOW)//Distance less than 50
         {
-            if(bestDist<(float)bestDist2*mfNNratio)//最小距离小于次最小距离的0.9
+            if(bestDist<(float)bestDist2*mfNNratio)//The minimum distance is less than 0.9 of the minimum distance
             {
                 if(vnMatches21[bestIdx2]>=0)
                 {
                     vnMatches12[vnMatches21[bestIdx2]]=-1;
                     nmatches--;
                 }
-                vnMatches12[i1]=bestIdx2;//参考帧对应的当前帧的特征点索引
-                vnMatches21[bestIdx2]=i1;//当前帧对应的参考帧的特征点索引
+                vnMatches12[i1]=bestIdx2;//Feature point index of the current frame corresponding to the reference frame
+                vnMatches21[bestIdx2]=i1;//Feature point index of the reference frame corresponding to the current frame
                 vMatchedDistance[bestIdx2]=bestDist;
                 nmatches++;
 
-                //生成角度差直方图
+                //Generate angle difference histogram
                 if(mbCheckOrientation)
                 {
-                    float rot = F1.mvKeysUn[i1].angle-F2.mvKeysUn[bestIdx2].angle;//求两特征点角度差
+                    float rot = F1.mvKeysUn[i1].angle-F2.mvKeysUn[bestIdx2].angle;//Find the difference between the two feature points
                     if(rot<0.0)
                         rot+=360.0f;
                     int bin = round(rot*factor);
                     if(bin==HISTO_LENGTH)
                         bin=0;
                     assert(bin>=0 && bin<HISTO_LENGTH);
-                    rotHist[bin].push_back(i1); //保存相差角度相同的的参考帧特征点索引
+                    rotHist[bin].push_back(i1); //Save reference frame feature point index with the same angle of difference
                 }
             }
         }
@@ -491,7 +492,7 @@ int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f
     }
 
 
-    //保留直方图中最多的三组，其余的去掉
+    //Keep the most three groups in the histogram, and the rest are removed.
     if(mbCheckOrientation)
     {
         int ind1=-1;
@@ -517,7 +518,7 @@ int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f
 
     }
 
-    //更新prev matched特征点为当前帧匹配到的特征点
+    //Update the prev matched feature point to the feature point to which the current frame is matched
     //Update prev matched
     for(size_t i1=0, iend1=vnMatches12.size(); i1<iend1; i1++)
         if(vnMatches12[i1]>=0)
@@ -1342,9 +1343,8 @@ int ORBmatcher::SearchBySim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint*> &
     // Check agreement
     int nFound = 0;
 
-    //候选帧投影到当前帧中找到的点
-    //与当前帧投影到候选帧中找到的点是否一致
-    //记录两帧匹配一致的点
+    //Whether the candidate frame is projected to the point found in the current frame
+    //is consistent with the point found by the current frame projected into the candidate frame.
     for(int i1=0; i1<N1; i1++)
     {
         int idx2 = vnMatch1[i1];
@@ -1642,7 +1642,7 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const set
 }
 
 
-//求匹配差角最多的三组
+//Find the three groups with the most matching difference angles
 void ORBmatcher::ComputeThreeMaxima(vector<int>* histo, const int L, int &ind1, int &ind2, int &ind3)
 {
     int max1=0;
@@ -1696,11 +1696,11 @@ int ORBmatcher::DescriptorDistance(const cv::Mat &a, const cv::Mat &b)
 
     int dist=0;
 
-    for(int i=0; i<8; i++, pa++, pb++)      //每次取32位4字节，共取8次，共计32字节256位，对应256对点
+    for(int i=0; i<8; i++, pa++, pb++)      //Take 32 bits and 4 bytes each time, take 8 times in total, totaling 32 bytes and 256 bits, corresponding to 256 pairs of points.
     {
-        unsigned  int v = *pa ^ *pb;            //异或求汉明距离
+        unsigned  int v = *pa ^ *pb;            //XOR or Hanming distance
 
-        //求v有几个1(装逼专用)
+        //Seeking v there are a few 1 (loading dedicated)
         v = v - ((v >> 1) & 0x55555555);
         v = (v & 0x33333333) + ((v >> 2) & 0x33333333);
         dist += (((v + (v >> 4)) & 0xF0F0F0F) * 0x1010101) >> 24;
