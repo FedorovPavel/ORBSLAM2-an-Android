@@ -1,5 +1,6 @@
 #include <jni.h>
 #include <string>
+#include <iostream>
 #include "System.h"
 #include <opencv2/imgcodecs/imgcodecs.hpp>
 #include <time.h>
@@ -60,7 +61,7 @@ cv::Point2f Camera2Pixel(cv::Mat poseCamera, cv::Mat mk) {
 
 extern "C"
 JNIEXPORT jfloatArray JNICALL
-Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong matAddr) {
+Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong matAddr, jlong rtAddr) {
 
 #ifndef BOWISBIN
     if(ttrack == 0)
@@ -69,6 +70,7 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
 #else
     LOGGER("Tracking current frame");
     cv::Mat *pMat = (cv::Mat *) matAddr;
+    cv::Mat *rtMat = (cv::Mat *) rtAddr;
 
     std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
     ttrack = std::chrono::duration_cast<std::chrono::duration<double >>(t1 - t0).count();
@@ -78,7 +80,7 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
 
     //LOGI("new frame come here===============");
     //ttrack Indicates the frame number
-    cv::Mat pose = SLAM.TrackMonocular(*pMat, ttrack);
+    cv::Mat pose = SLAM.TrackMonocular(*pMat, ttrack, *rtMat);
     end = clock();
     LOGGER("Get Pose Use Time=%f\n", ((double) end - start) / CLOCKS_PER_SEC);
 
@@ -275,6 +277,16 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
             */
         }
     }
+    char rt_string[1000];
+    sprintf(rt_string, "[%.2f,%.2f,%.2f]\0", (*rtMat).at<float>(0,0),(*rtMat).at<float>(0,1),(*rtMat).at<float>(0,2));
+    cv::putText(*pMat, rt_string , cv::Point(0,150), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,255), 2);
+    sprintf(rt_string, "[%.2f,%.2f,%.2f]\0", (*rtMat).at<float>(1,0),(*rtMat).at<float>(1,1),(*rtMat).at<float>(1,2));
+    cv::putText(*pMat, rt_string , cv::Point(0,170), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,255), 2);
+    sprintf(rt_string, "[%.2f,%.2f,%.2f]\0", (*rtMat).at<float>(2,0), (*rtMat).at<float>(2,1), (*rtMat).at<float>(2,2));
+    cv::putText(*pMat, rt_string , cv::Point(0,190), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,255), 2);
+
+    sprintf(rt_string, "[%.2f,%.2f,%.2f]\0", (*rtMat).at<float>(3,0),(*rtMat).at<float>(3,1),(*rtMat).at<float>(3,2));
+    cv::putText(*pMat, rt_string , cv::Point(0,210), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(170,170,255), 2);
 
     switch (SLAM.GetTrackingState()) {
         case -1: {
