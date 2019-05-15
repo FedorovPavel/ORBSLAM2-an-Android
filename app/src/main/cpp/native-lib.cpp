@@ -14,6 +14,8 @@
 #define CURRENT_LOG_LEVEL ANDROID_LOG_INFO
 #define LOGGER(...)  __android_log_print(CURRENT_LOG_LEVEL, LOG_TAG, __VA_ARGS__)
 
+#define CENTER_W 320
+#define CENTER_H 240
 #define BOWISBIN
 
 //ORB_SLAM2::System SLAM("/storage/emulated/0/ORBvoc.txt","/storage/emulated/0/TUM1.yaml",ORB_SLAM2::System::MONOCULAR,false);
@@ -91,39 +93,9 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
         markerDetected = false;
     }
 
+    float dist = -1.0f;
+    bool calc = false;
     if (!pose.empty()) {
-//        if(markerDetected == false){
-//            Process process(pMat);
-//            markerDetected = process.Run();
-//            if(process.Run()){
-//                cv::Mat rwc,twc,tempTwc=cv::Mat::eye(4,4,CV_32F);
-//                rwc = pose.rowRange(0,3).colRange(0,3).t();
-//                twc = -rwc*pose.col(3).rowRange(0,3);
-//                rwc.copyTo(tempTwc.rowRange(0,3).colRange(0,3));
-//                twc.copyTo(tempTwc.col(3).rowRange(0,3));
-//                Marker2World = tempTwc*process.marker2origincamera;
-//            }
-//
-//        }else{
-//            vector<cv::Point3f> drawPoints(4);
-//            drawPoints[0] = cv::Point3f(0,0,1);
-//            drawPoints[1] = cv::Point3f(0.3,0,1);
-//            drawPoints[2] = cv::Point3f(0,0.3,1);
-//            drawPoints[3] = cv::Point3f(0,0,1.3);
-//            cv::Mat Marker2CameraNow = pose*Marker2World;
-//            cv::Mat rcm,tcm;
-//            cv::Rodrigues(Marker2CameraNow.rowRange(0,3).colRange(0,3),rcm);
-//            tcm = Marker2CameraNow.col(3).rowRange(0,3);
-//            std::vector<cv::Point2f> markerPoints;
-//            cv::projectPoints(drawPoints, rcm, tcm, SLAM.mpTracker->mK, SLAM.mpTracker->mDistCoef, markerPoints);
-//
-//            cv::line(*pMat, markerPoints[0],markerPoints[1], cv::Scalar(250, 0, 0), 5);
-//            cv::line(*pMat, markerPoints[0],markerPoints[2], cv::Scalar(0, 250, 0), 5);
-//            cv::line(*pMat, markerPoints[0],markerPoints[3], cv::Scalar(0, 0, 250), 5);
-//        }
-
-
-
 
         cv::Mat rotationVec;
         cv::Rodrigues(pose.colRange(0, 3).rowRange(0, 3), rotationVec);
@@ -132,19 +104,9 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
         const vector<ORB_SLAM2::MapPoint *> vpMPs = SLAM.mpTracker->mpMap->GetAllMapPoints();
         const vector<ORB_SLAM2::MapPoint *> vpTMPs = SLAM.GetTrackedMapPoints();
         vector<cv::KeyPoint> vKPs = SLAM.GetTrackedKeyPointsUn();
-//        for(int i=0; i<vKPs.size(); i++)
-//        {
-//            if(vpTMPs[i])
-//            {
-//                cv::circle(*pMat, vKPs[i].pt, 2, cv::Scalar(0, 255, 0), 1, 8);
-//            }
-//        }
-//        if(vpTMPs.size() > 0){
-//
-//        }
 
 
-//  #MapPointToImage
+        //  #MapPointToImage
         if (vpMPs.size() > 0) {
             std::vector<cv::Point3f> allmappoints;
             for (size_t i = 0; i < vpMPs.size(); i++) {
@@ -160,11 +122,33 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
             cv::projectPoints(allmappoints, rotationVec, translateVec, SLAM.mpTracker->mK,
                               SLAM.mpTracker->mDistCoef, projectedPoints);
 
+            float bestCentered = INT_MAX;
+            float tempPos;
+            int index;
+            for (size_t j = 0; j < projectedPoints.size(); ++j) {
+                cv::Point2f r1 = projectedPoints[j];
+                if (r1.x < 640 && r1.x > 0 && r1.y > 0 && r1.y < 480) {
+                    tempPos = sqrt((r1.x - CENTER_W) * (r1.x - CENTER_W) + (r1.y - CENTER_H) * (r1.y - CENTER_H));
+                    if (tempPos < bestCentered) {
+                        bestCentered = tempPos;
+                        index = j;
+                    }
+                }
+            }
+
             for (size_t j = 0; j < projectedPoints.size(); ++j) {
                 cv::Point2f r1 = projectedPoints[j];
                 if (r1.x < 640 && r1.x > 0 && r1.y > 0 && r1.y < 480)
-                    cv::circle(*pMat, cv::Point(r1.x, r1.y), 2, cv::Scalar(0, 255, 0), 1, LINE_8);
+                    if (index != j)
+                        cv::circle(*pMat, cv::Point(r1.x, r1.y), 2, cv::Scalar(0, 255, 0), 1, LINE_8);
+                    else
+                        cv::circle(*pMat, cv::Point(r1.x, r1.y), 4, cv::Scalar(255, 0, 0), 1, LINE_8);
+
             }
+
+            cv::Point3f dot = allmappoints[index];
+            dist = sqrt(dot.x * dot.x + dot.y * dot.y + dot.z * dot.z);
+            calc = true;
 
             //  Product logic
             /*
@@ -278,6 +262,12 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
         }
     }
     char rt_string[1000];
+
+    if (calc) {
+        sprintf(rt_string, "%.2f\0", dist);
+        cv::putText(*pMat, rt_string , cv::Point(0,60), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,255), 2);
+    }
+
     sprintf(rt_string, "[%.2f,%.2f,%.2f]\0", (*rtMat).at<float>(0,0),(*rtMat).at<float>(0,1),(*rtMat).at<float>(0,2));
     cv::putText(*pMat, rt_string , cv::Point(0,150), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,255), 2);
     sprintf(rt_string, "[%.2f,%.2f,%.2f]\0", (*rtMat).at<float>(1,0),(*rtMat).at<float>(1,1),(*rtMat).at<float>(1,2));
