@@ -26,9 +26,5 @@
         android:text=""
         android:textSize="16sp"
         android:textStyle="bold" />
-    <SeekBar
-        android:id="@+id/mySeekBar"
-        android:layout_width="fill_parent"
-        android:layout_height="wrap_content" />
 
 </FrameLayout>
