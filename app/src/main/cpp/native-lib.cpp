@@ -147,7 +147,10 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
             }
 
             cv::Point3f dot = allmappoints[index];
-            dist = sqrt(dot.x * dot.x + dot.y * dot.y + dot.z * dot.z);
+            float tX = 0;
+            float tY = 0;
+            float tZ = 0;
+            dist = sqrt((dot.x - tX) * (dot.x - tX)  + (dot.y - tY) * (dot.y - tY) + (dot.z - tZ)*(dot.z - tZ));
             calc = true;
 
             //  Product logic
@@ -263,11 +266,6 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
     }
     char rt_string[1000];
 
-    if (calc) {
-        sprintf(rt_string, "%.2f\0", dist);
-        cv::putText(*pMat, rt_string , cv::Point(0,60), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,255), 2);
-    }
-
     sprintf(rt_string, "[%.2f,%.2f,%.2f]\0", (*rtMat).at<float>(0,0),(*rtMat).at<float>(0,1),(*rtMat).at<float>(0,2));
     cv::putText(*pMat, rt_string , cv::Point(0,150), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,255), 2);
     sprintf(rt_string, "[%.2f,%.2f,%.2f]\0", (*rtMat).at<float>(1,0),(*rtMat).at<float>(1,1),(*rtMat).at<float>(1,2));
@@ -311,7 +309,7 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
 
     /**Return the resulting camera pose matrix to the java code to update the opengl camera pose later.**/
     cv::Mat ima = pose;
-    jfloatArray resultArray = env->NewFloatArray(ima.rows * ima.cols);
+    jfloatArray resultArray = env->NewFloatArray(ima.rows * ima.cols + 1);
     jfloat *resultPtr;
 
     resultPtr = env->GetFloatArrayElements(resultArray, 0);
@@ -320,6 +318,8 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
             float tempdata = ima.at<float>(i, j);
             resultPtr[i * ima.rows + j] = tempdata;
         }
+
+    resultPtr[ima.rows * ima.cols] = dist;
 
     env->ReleaseFloatArrayElements(resultArray, resultPtr, 0);
     return resultArray;
