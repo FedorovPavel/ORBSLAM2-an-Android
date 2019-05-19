@@ -5,7 +5,6 @@ import android.hardware.SensorManager;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 
-import android.os.Build;
 import android.widget.FrameLayout;
 import android.content.Context;
 
@@ -62,33 +61,40 @@ public class imuController extends FrameLayout implements SensorEventListener {
     public Mat GetSensorData() {
         Mat result = new Mat(3,4, CV_32F);
 
-        Mat r = getRotationMatrix();
-        Mat t = getTranslationMatrix();
+        float[][] r = getRotationMatrix();
+        float[] t = getTranslationMatrix();
 
-        r.copyTo(result.rowRange(0,3).colRange(0,3));
-//        t.copyTo(result.rowRange(0,3).col(3));
+        for (int i = 0; i < 3; i++) {
+            for (int j = 0; j < 3; j++) {
+                result.put(i,j, r[i][j]);
+            }
+        }
+
+        for (int i = 0; i < 3; i++) {
+            result.put(i, 3, t[i]);
+        }
 
         return result;
     }
 
-    private Mat getRotationMatrix() {
-        Mat res = new Mat(3,3,CV_32F);
+    private float[][] getRotationMatrix() {
+        float[][] res = new float[3][3];
 
         float [] matrix = Quaternion.GetRotation();
         int i, j;
         for (int k = 0; k < matrix.length; k++) {
             j = k % 3;
             i = k / 3;
-            res.put(i, j, matrix[k]);
+            res[i][j] =  matrix[k];
         }
         return res;
     }
 
-    private Mat getTranslationMatrix() {
-        Mat res = new Mat(3,1,CV_32F);
+    private float[] getTranslationMatrix() {
+        float[] res = new float[3];
         float[] data = Position.GetPosition();
         for (int i = 0; i < data.length; i++) {
-            res.put(i,0,data[i]);
+            res[i] = data[i];
         }
 
         return res;
@@ -99,8 +105,7 @@ public class imuController extends FrameLayout implements SensorEventListener {
         manager.registerListener(this, mGyroscope, SensorManager.SENSOR_DELAY_FASTEST);
         manager.registerListener(this, mAccelerometer, SensorManager.SENSOR_DELAY_FASTEST);
         manager.registerListener(this, mMagnetrometer, SensorManager.SENSOR_DELAY_FASTEST);
-
-//        manager.registerListener(this, mLinearAccelerometer, SensorManager.SENSOR_DELAY_FASTEST);
+        manager.registerListener(this, mLinearAccelerometer, SensorManager.SENSOR_DELAY_FASTEST);
     }
 
     public void Stop() {
@@ -146,8 +151,8 @@ public class imuController extends FrameLayout implements SensorEventListener {
                     return;
                 }
                 case Sensor.TYPE_LINEAR_ACCELERATION: {
-                    float ax = SensorDataHandler.GetAccuracy(event.values[0], 2);
-                    float ay = SensorDataHandler.GetAccuracy(event.values[1], 2);
+                    float ax = -SensorDataHandler.GetAccuracy(event.values[1], 2);
+                    float ay = SensorDataHandler.GetAccuracy(event.values[0], 2);
                     float az = SensorDataHandler.GetAccuracy(event.values[2], 2);
                     Position.Update(ax, ay, az, event.timestamp);
                     return;
@@ -233,7 +238,7 @@ public class imuController extends FrameLayout implements SensorEventListener {
                 rmatrix[6] = 2.0f * x * z - 2.0f * y * w;
                 rmatrix[7] = 2.0f * y * z + 2.0f * x * w;
                 rmatrix[8] = 1.0f - 2.0f * x * x - 2.0f * y * y;
-                Reset();
+//                Reset();
                 lock.release();
             } catch (InterruptedException err) {}
 
@@ -505,77 +510,90 @@ public class imuController extends FrameLayout implements SensorEventListener {
     }
 
     public class MotionSensor {
-        private float[] postion;
-        private float[] velocity;
+        private float[] position;
+        private float[] prevA;
+        private float[] prevV;
+        private float[] prevP;
+        private boolean velocityInit;
         private long prevTime;
         private final Semaphore lock;
-        private int firstStep;
-        private float[] firstData;
-        private float[] sensor;
 
         public MotionSensor(){
-            postion = new float[3];
-            velocity = new float[3];
-            firstData = new float[3];
-            sensor = new float[3];
+            position = new float[3];
+            prevA = new float[3];
+            prevV = new float[3];
+            velocityInit = false;
             lock = new Semaphore(1, true);
-            firstStep = -1;
             prevTime = 0;
+            prevP = new float[3];
+            for (int i = 0; i < prevP.length; i++) {
+                prevP[i] = 0;
+            }
+            Reset();
         }
 
         public void Reset() {
-            try {
-                lock.acquire();
-                for (int i = 0; i < 3; i++) {
-                    postion[i] = 0;
-                    velocity[i] = 0;
-                }
-                lock.release();
-            } catch (InterruptedException err) {
-
+            for (int i = 0; i < 3; i++) {
+                position[i] = 0;
             }
+            return;
         }
 
         public void Update(float ax, float ay, float az, long time) {
-            sensor[0] = ax;
-            sensor[1] = ay;
-            sensor[2] = az;
             try {
                 lock.acquire();
-                if (firstStep == 1) {
-                    float dt = (time - prevTime) / (float)Math.pow(10, 9);
-                    velocity[0] += ax * dt;
-                    velocity[1] += ay * dt;
-                    velocity[2] += az * dt;
-                    for (int i = 0; i < velocity.length; i++) {
-                        postion[i] += velocity[i] * dt;
-                    }
-
+                if (prevTime == 0) {
+                    prevA[0] = ax;
+                    prevA[1] = ay;
+                    prevA[2] = az;
                     prevTime = time;
-                } else if (firstStep == 0) {
-
-                    float dt = (time - prevTime) / (float)Math.pow(10, 9);
-                    for (int i = 0; i < velocity.length; i++) {
-                        velocity[i] = firstData[i] * dt;
-                        postion[i] = velocity[i] * dt;
-                    }
-
-                    velocity[0] += ax * dt;
-                    velocity[1] += ay * dt;
-                    velocity[2] += az * dt;
-                    for (int i = 0; i < velocity.length; i++) {
-                        postion[i] += velocity[i] * dt;
-                    }
-
-                    prevTime = time;
-                    firstStep = 1;
-                } else {
-                    firstData[0] = ax;
-                    firstData[1] = ay;
-                    firstData[2] = az;
-                    prevTime = time;
-                    firstStep = 0;
+                    lock.release();
+                    return;
                 }
+
+//                if (Math.abs(prevAccel[0] + prevAccel[1] + prevAccel[2] - ax - ay - az) > 5.0f) {
+//                    //  Data ejection
+//                    prevTime = time;
+//                    lock.release();
+//                    return;
+//                }
+
+                float dt = (time - prevTime) / (float)Math.pow(10, 9);  //  NS to S
+
+                if (dt > 1.0f) {
+                    prevTime = time;
+                    lock.release();
+                    return;
+                }
+                float [] curVelocity = new float[3];
+
+                curVelocity[0] = prevV[0] + (prevA[0] + ((ax - prevA[0])/2)) * dt;
+                curVelocity[1] = prevV[1] + (prevA[1] + ((ay - prevA[1])/2)) * dt;
+                curVelocity[2] = prevV[2] + (prevA[2] + ((az - prevA[2])/2)) * dt;
+
+                prevA[0] = ax;
+                prevA[1] = ay;
+                prevA[2] = az;
+
+                if (!velocityInit) {
+                    for (int i = 0; i < curVelocity.length; i++) {
+                        prevV[i] = curVelocity[i];
+                    }
+                    velocityInit = true;
+                    prevTime = time;
+                    lock.release();
+                    return;
+                }
+
+                float[] curPosition = new float[3];
+                for (int i = 0; i < curVelocity.length; i++) {
+                    curPosition[i] = prevP[i] + (prevV[i] + (curVelocity[i] - prevV[i])/2 ) * dt;
+                    position[i] += curPosition[i];
+                    prevP[i] = curPosition[i];
+                }
+
+
+                prevTime = time;
                 lock.release();
             }catch (InterruptedException err) {}
         }
@@ -583,21 +601,14 @@ public class imuController extends FrameLayout implements SensorEventListener {
         public float[] GetPosition() {
             float[] res = new float[3];
             try {
-
                 lock.acquire();
                 for(int i = 0; i < 3; i++)
-                    res[i] = sensor[i];
+                    res[i] = position[i];
                 lock.release();
 
 //                Reset();
-            } catch (InterruptedException err) {
-
-            }
+            } catch (InterruptedException err) {}
             return res;
         }
-
-
     }
-
-
 }
