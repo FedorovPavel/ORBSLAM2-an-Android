@@ -165,11 +165,6 @@ void Tracking::SetLoopClosing(LoopClosing *pLoopClosing)
     mpLoopClosing=pLoopClosing;
 }
 
-void Tracking::SetViewer(Viewer *pViewer)
-{
-    mpViewer=pViewer;
-}
-
 cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp, cv::Mat &rt)
 {
 
@@ -193,18 +188,8 @@ cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp,
 
     LOGE("Start init frame!!!!");
     if(mState==NOT_INITIALIZED || mState==NO_IMAGES_YET) {
-        cv::Mat unit(3, 4,CV_32F);
-        for (int i = 0; i < 3; i++) {
-            for (int j = 0; j < 4; j++) {
-                if (i=j) {
-                    unit.at<float>(i,j) = (float)1.0f;
-                } else {
-                    unit.at<float>(i,j) = (float)0.0f;
-                }
-            }
-        }
         mCurrentFrame = Frame(mImGray, timestamp, mpIniORBextractor, mpORBVocabulary, mK, mDistCoef,
-                              mbf, mThDepth, unit);
+                              mbf, mThDepth, rt);
     }else{
         clock_t orb_start_time=clock();
         mCurrentFrame = Frame(mImGray,timestamp,mpORBextractorLeft,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth, rt);
