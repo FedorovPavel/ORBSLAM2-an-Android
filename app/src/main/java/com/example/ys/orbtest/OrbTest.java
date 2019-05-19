@@ -34,17 +34,22 @@ import java.io.FileInputStream;
 import java.io.InputStreamReader;
 import java.io.BufferedReader;
 import java.nio.charset.StandardCharsets;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.Semaphore;
 
 public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraViewListener2 {
 
     private static final String TAG = "OrbTest::Activity@@JAVA";
     private GLSurfaceView glSurfaceView;
     private CameraBridgeViewBase mOpenCvCameraView;
-    private SeekBar seek;
+    private Timer mTimer;
+    private MyTimerTask mTimerTask;
     private TextView myTextView;
-    public static double SCALE = 1;
+    public static double DISTANCE = 1;
     private static long count = 0;
     private imuController sensor;
+    private Semaphore sync;
 
 
     private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
@@ -71,6 +76,7 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
     @Override
     public void onCreate(Bundle savedInstanceState) {
         Log.i(TAG, "called onCreate");
+        sync = new Semaphore(1, true);
         MatrixState.set_projection_matrix(445f, 445f, 319.5f, 239.500000f, 850, 480, 0.01f, 100f);
         super.onCreate(savedInstanceState);
         //hide the status bar
@@ -117,40 +123,41 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
         glSurfaceView.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
         glSurfaceView.setZOrderOnTop(true);
         glSurfaceView.setOnTouchListener(new View.OnTouchListener() {
+
             @Override
             public boolean onTouch(View v, MotionEvent event) {
                 if (event != null) {
                     // Convert touch coordinates into normalized device
                     // coordinates, keeping in mind that Android's Y
                     // coordinates are inverted.
-                    final float normalizedX = ((event.getX() / (float) v.getWidth()) * 2 - 1) * 4f;
-                    final float normalizedY = (-((event.getY() / (float) v.getHeight()) * 2 - 1)) * 1.5f;
-
-                    if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                        glSurfaceView.queueEvent(new Runnable() {
-                            @Override
-                            public void run() {
-                                earthRender.handleTouchPress(
-                                        normalizedX, normalizedY);
-                            }
-                        });
-                    } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
-                        glSurfaceView.queueEvent(new Runnable() {
-                            @Override
-                            public void run() {
-                                earthRender.handleTouchDrag(
-                                        normalizedX, normalizedY);
-                            }
-                        });
-                    } else if (event.getAction() == MotionEvent.ACTION_UP) {
-                        glSurfaceView.queueEvent(new Runnable() {
-                            @Override
-                            public void run() {
-                                earthRender.handleTouchUp(
-                                        normalizedX, normalizedY);
-                            }
-                        });
-                    }
+//                    final float normalizedX = ((event.getX() / (float) v.getWidth()) * 2 - 1) * 4f;
+//                    final float normalizedY = (-((event.getY() / (float) v.getHeight()) * 2 - 1)) * 1.5f;
+//
+//                    if (event.getAction() == MotionEvent.ACTION_DOWN) {
+//                        glSurfaceView.queueEvent(new Runnable() {
+//                            @Override
+//                            public void run() {
+//                                earthRender.handleTouchPress(
+//                                        normalizedX, normalizedY);
+//                            }
+//                        });
+//                    } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
+//                        glSurfaceView.queueEvent(new Runnable() {
+//                            @Override
+//                            public void run() {
+//                                earthRender.handleTouchDrag(
+//                                        normalizedX, normalizedY);
+//                            }
+//                        });
+//                    } else if (event.getAction() == MotionEvent.ACTION_UP) {
+//                        glSurfaceView.queueEvent(new Runnable() {
+//                            @Override
+//                            public void run() {
+//                                earthRender.handleTouchUp(
+//                                        normalizedX, normalizedY);
+//                            }
+//                        });
+//                    }
 
                     return true;
                 } else {
@@ -160,12 +167,13 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
         });
 
 
+
         myTextView = (TextView) findViewById(R.id.myTextView);
-        seek = (SeekBar) findViewById(R.id.mySeekBar);
-        //initialization
-        seek.setProgress(60);
-        seek.setOnSeekBarChangeListener(seekListener);
-        myTextView.setText("Scale:" + SCALE);
+        myTextView.setText("DIST: --");
+
+        mTimer = new Timer();
+        mTimerTask = new MyTimerTask();
+        mTimer.schedule(mTimerTask, 1000, 1000);
     }
 
     @Override
@@ -232,51 +240,75 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
     public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
 
         Mat rgb = inputFrame.rgba();
-        Mat RT = sensor.GetSensorData();
+        try {
+            sync.acquire();
 
-        float[] poseMatrix = CVTest(rgb.getNativeObjAddr(), RT.getNativeObjAddr()); //Slam system obtains camera pose matrix
+            Mat RT = sensor.GetSensorData();
 
-        if (poseMatrix.length != 0) {
-            double[][] pose = new double[4][4];
-            System.out.println("one posematrix is below========");
-            for (int i = 0; i < poseMatrix.length / 4; i++) {
-                for (int j = 0; j < 4; j++) {
+            float[] poseMatrix = CVTest(rgb.getNativeObjAddr(), RT.getNativeObjAddr()); //Slam system obtains camera pose matrix
+            if (poseMatrix.length > 1) {
+                double[][] pose = new double[4][4];
 
-                    if (j == 3 && i != 3) {
-                        pose[i][j] = poseMatrix[i * 4 + j] * SCALE;
-                    } else {
-                        pose[i][j] = poseMatrix[i * 4 + j];
+                for (int i = 0; i < poseMatrix.length / 4; i++) {
+                    for (int j = 0; j < 4; j++) {
+
+                        if (j == 3 && i != 3) {
+                            pose[i][j] = poseMatrix[i * 4 + j];
+                        } else {
+                            pose[i][j] = poseMatrix[i * 4 + j];
+                        }
                     }
-                    System.out.print(pose[i][j] + "\t ");
                 }
 
-                System.out.print("\n");
+                DISTANCE = poseMatrix[16];
+//                myTextView.setText("DIST: " + DISTANCE + "m");
             }
 
-            System.out.println("Total number: " + count + "frame, the scaling factor is " + SCALE);
-            double[][] R = new double[3][3];
-            double[] T = new double[3];
+//            if (poseMatrix.length != 0) {
+//                double[][] pose = new double[4][4];
+//                System.out.println("one posematrix is below========");
+//                for (int i = 0; i < poseMatrix.length / 4; i++) {
+//                    for (int j = 0; j < 4; j++) {
+//
+//                        if (j == 3 && i != 3) {
+//                            pose[i][j] = poseMatrix[i * 4 + j] * SCALE;
+//                        } else {
+//                            pose[i][j] = poseMatrix[i * 4 + j];
+//                        }
+//                        System.out.print(pose[i][j] + "\t ");
+//                    }
+//
+//                    System.out.print("\n");
+//                }
+//
+//                System.out.println("Total number: " + count + "frame, the scaling factor is " + SCALE);
+//                double[][] R = new double[3][3];
+//                double[] T = new double[3];
+//
+//                for (int i = 0; i < 3; i++) {
+//                    for (int j = 0; j < 3; j++) {
+//                        R[i][j] = pose[i][j];
+//                    }
+//                }
+//                for (int i = 0; i < 3; i++) {
+//                    T[i] = pose[i][3];
+//                }
+//                RealMatrix rotation = new Array2DRowRealMatrix(R);
+//                RealMatrix translation = new Array2DRowRealMatrix(T);
+//                MatrixState.set_model_view_matrix(rotation, translation);
+//
+//                MyRender.flag = true;
+//                count++;
+//
+//            } else {
+//                //If you don't get the pose matrix of the camera, don't draw the cube
+//                MyRender.flag = false;
+//            }
+            sync.release();
 
-            for (int i = 0; i < 3; i++) {
-                for (int j = 0; j < 3; j++) {
-                    R[i][j] = pose[i][j];
-                }
-            }
-            for (int i = 0; i < 3; i++) {
-                T[i] = pose[i][3];
-            }
-            RealMatrix rotation = new Array2DRowRealMatrix(R);
-            RealMatrix translation = new Array2DRowRealMatrix(T);
-            MatrixState.set_model_view_matrix(rotation, translation);
-
-            MyRender.flag = true;
-            count++;
-
-        } else {
-            //If you don't get the pose matrix of the camera, don't draw the cube
-            MyRender.flag = false;
+        } catch (InterruptedException err) {
+            System.out.println(err.getMessage());
         }
-
         return rgb;
     }
 
@@ -328,28 +360,20 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
         fis.close();
     }
 
-
-    private SeekBar.OnSeekBarChangeListener seekListener = new SeekBar.OnSeekBarChangeListener() {
-        @Override
-        public void onStopTrackingTouch(SeekBar seekBar) {
-            Log.i(TAG, "onStopTrackingTouch");
-        }
+    class MyTimerTask extends TimerTask {
 
         @Override
-        public void onStartTrackingTouch(SeekBar seekBar) {
-            Log.i(TAG, "onStartTrackingTouch");
-        }
+        public void run() {
+            runOnUiThread(new Runnable() {
 
-        @Override
-        public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-            Log.i(TAG, "onProgressChanged");
-            if (progress > 50) {
-                SCALE = (progress - 50) * 10;
-            } else {
-                SCALE = (50 - progress) * 0.5;
-            }
-            myTextView.setText("Scale: " + SCALE);
+                @Override
+                public void run() {
+                    if (DISTANCE != 1.0)
+                        myTextView.setText("DIST: " + DISTANCE + "m");
+                    else
+                        myTextView.setText("DIST: --");
+                }
+            });
         }
-    };
-
+    }
 }
