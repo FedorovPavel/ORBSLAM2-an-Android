@@ -32,7 +32,7 @@
 #define  LOG_TAG    "native-dev"
 #define  LOGI(...)  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...)  __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
-#define LOGI(...)  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+//#define LOGI(...)  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 namespace ORB_SLAM2
 {
@@ -121,8 +121,11 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
     LOGE(" RH RATE = %f",RH);
 
     // Try to reconstruct from homography or fundamental depending on the ratio (0.40-0.45)
-    if(RH>0.40)
-        return ReconstructH(vbMatchesInliersH,H,mK,R21,t21,vP3D,vbTriangulated,1.0,15);
+
+    if(RH>0.40) {
+        cv::Mat RT = CurrentFrame.RT.clone();
+        return ReconstructH(vbMatchesInliersH, H, mK, R21, t21, RT, vP3D, vbTriangulated, 1.0, 15);
+    }
     else //if(pF_HF>0.6)
         return ReconstructF(vbMatchesInliersF,F,mK,R21,t21,vP3D,vbTriangulated,1.0,15);
 
@@ -493,7 +496,7 @@ bool Initializer::ReconstructF(vector<bool> &vbMatchesInliers, cv::Mat &F21, cv:
             N++;
 
     // Compute Essential Matrix from Fundamental Matrix
-    cv::Mat E21 = K.t()*F21*K;  //本质矩阵
+    cv::Mat E21 = K.t()*F21*K;  //Essential matrix
 
     cv::Mat R1, R2, t;
 
@@ -588,7 +591,7 @@ bool Initializer::ReconstructF(vector<bool> &vbMatchesInliers, cv::Mat &F21, cv:
 }
 
 bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv::Mat &K,
-                      cv::Mat &R21, cv::Mat &t21, vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated, float minParallax, int minTriangulated)
+                      cv::Mat &R21, cv::Mat &t21, cv::Mat &IRt21, vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated, float minParallax, int minTriangulated)
 {
     int N=0;
     for(size_t i=0, iend = vbMatchesInliers.size() ; i<iend; i++)
@@ -612,97 +615,109 @@ bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv:
     float d2 = w.at<float>(1);
     float d3 = w.at<float>(2);
 
-    if(d1/d2<1.00001 || d2/d3<1.00001)  //If d1<d2 or d2<d3
-    {
-        return false;
-    }
-
     vector<cv::Mat> vR, vt, vn;
-    vR.reserve(8);
-    vt.reserve(8);
+    vR.reserve(9);
+    vt.reserve(9);
     vn.reserve(8);
 
-    //Corresponding to the formula of Wu Bo ppt 17
-    //n'=[x1 0 x3] 4 posibilities e1=e3=1, e1=1 e3=-1, e1=-1 e3=1, e1=e3=-1
-    float aux1 = sqrt((d1*d1-d2*d2)/(d1*d1-d3*d3));
-    float aux3 = sqrt((d2*d2-d3*d3)/(d1*d1-d3*d3));
-    float x1[] = {aux1,aux1,-aux1,-aux1};
-    float x3[] = {aux3,-aux3,aux3,-aux3};
-
-    //Corresponding to Wu Bo ppt's formula 19
-    //Case d'=d2
-    float aux_stheta = sqrt((d1*d1-d2*d2)*(d2*d2-d3*d3))/((d1+d3)*d2);  //sin
-
-    float ctheta = (d2*d2+d1*d3)/((d1+d3)*d2);  //cos
-    float stheta[] = {aux_stheta, -aux_stheta, -aux_stheta, aux_stheta};//Corresponds to x1[], x3[] above
-
-    for(int i=0; i<4; i++)
-    {
-        cv::Mat Rp=cv::Mat::eye(3,3,CV_32F);
-        Rp.at<float>(0,0)=ctheta;
-        Rp.at<float>(0,2)=-stheta[i];
-        Rp.at<float>(2,0)=stheta[i];
-        Rp.at<float>(2,2)=ctheta;
-
-        cv::Mat R = s*U*Rp*Vt;
-        vR.push_back(R);
-
-        cv::Mat tp(3,1,CV_32F);
-        tp.at<float>(0)=x1[i];
-        tp.at<float>(1)=0;
-        tp.at<float>(2)=-x3[i];
-        tp*=d1-d3;              //t'
-
-        cv::Mat t = U*tp;       //t
-        vt.push_back(t/cv::norm(t));
-
-        cv::Mat np(3,1,CV_32F);
-        np.at<float>(0)=x1[i];
-        np.at<float>(1)=0;
-        np.at<float>(2)=x3[i];      //n'
-
-        cv::Mat n = V*np;           //n
-        if(n.at<float>(2)<0)
-            n=-n;
-        vn.push_back(n);
+    cv::Mat ir(3,3, CV_32F);
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            ir.at<float>(i,j) = IRt21.at<float>(i,j);
+        }
     }
+    vR.push_back(ir);
 
-    //case d'=-d2
-    float aux_sphi = sqrt((d1*d1-d2*d2)*(d2*d2-d3*d3))/((d1-d3)*d2);
+    cv::Mat it(3,1, CV_32F);
+    for (int i = 0; i < 3; i ++) {
+        it.at<float>(i, 0) = IRt21.at<float>(i, 3);
+    }
+    vt.push_back(it);
 
-    float cphi = (d1*d3-d2*d2)/((d1-d3)*d2);
-    float sphi[] = {aux_sphi, -aux_sphi, -aux_sphi, aux_sphi};
-
-    for(int i=0; i<4; i++)
+    if(!(d1/d2<1.00001 || d2/d3<1.00001))  //If d1<d2 or d2<d3
     {
-        cv::Mat Rp=cv::Mat::eye(3,3,CV_32F);
-        Rp.at<float>(0,0)=cphi;
-        Rp.at<float>(0,2)=sphi[i];
-        Rp.at<float>(1,1)=-1;
-        Rp.at<float>(2,0)=sphi[i];
-        Rp.at<float>(2,2)=-cphi;
+        //Corresponding to the formula of Wu Bo ppt 17
+        //n'=[x1 0 x3] 4 posibilities e1=e3=1, e1=1 e3=-1, e1=-1 e3=1, e1=e3=-1
+        float aux1 = sqrt((d1*d1-d2*d2)/(d1*d1-d3*d3));
+        float aux3 = sqrt((d2*d2-d3*d3)/(d1*d1-d3*d3));
+        float x1[] = {aux1,aux1,-aux1,-aux1};
+        float x3[] = {aux3,-aux3,aux3,-aux3};
 
-        cv::Mat R = s*U*Rp*Vt;
-        vR.push_back(R);
+        //Corresponding to Wu Bo ppt's formula 19
+        //Case d'=d2
+        float aux_stheta = sqrt((d1*d1-d2*d2)*(d2*d2-d3*d3))/((d1+d3)*d2);  //sin
 
-        cv::Mat tp(3,1,CV_32F);
-        tp.at<float>(0)=x1[i];
-        tp.at<float>(1)=0;
-        tp.at<float>(2)=x3[i];
-        tp*=d1+d3;
+        float ctheta = (d2*d2+d1*d3)/((d1+d3)*d2);  //cos
+        float stheta[] = {aux_stheta, -aux_stheta, -aux_stheta, aux_stheta};//Corresponds to x1[], x3[] above
 
-        cv::Mat t = U*tp;
-        vt.push_back(t/cv::norm(t));
+        for(int i=0; i<4; i++)
+        {
+            cv::Mat Rp=cv::Mat::eye(3,3,CV_32F);
+            Rp.at<float>(0,0)=ctheta;
+            Rp.at<float>(0,2)=-stheta[i];
+            Rp.at<float>(2,0)=stheta[i];
+            Rp.at<float>(2,2)=ctheta;
 
-        cv::Mat np(3,1,CV_32F);
-        np.at<float>(0)=x1[i];
-        np.at<float>(1)=0;
-        np.at<float>(2)=x3[i];
+            cv::Mat R = s*U*Rp*Vt;
+            vR.push_back(R);
 
-        cv::Mat n = V*np;
-        if(n.at<float>(2)<0)
-            n=-n;
-        vn.push_back(n);
+            cv::Mat tp(3,1,CV_32F);
+            tp.at<float>(0)=x1[i];
+            tp.at<float>(1)=0;
+            tp.at<float>(2)=-x3[i];
+            tp*=d1-d3;              //t'
+
+            cv::Mat t = U*tp;       //t
+            vt.push_back(t/cv::norm(t));
+
+            cv::Mat np(3,1,CV_32F);
+            np.at<float>(0)=x1[i];
+            np.at<float>(1)=0;
+            np.at<float>(2)=x3[i];      //n'
+
+            cv::Mat n = V*np;           //n
+            if(n.at<float>(2)<0)
+                n=-n;
+            vn.push_back(n);
+        }
+
+        //case d'=-d2
+        float aux_sphi = sqrt((d1*d1-d2*d2)*(d2*d2-d3*d3))/((d1-d3)*d2);
+
+        float cphi = (d1*d3-d2*d2)/((d1-d3)*d2);
+        float sphi[] = {aux_sphi, -aux_sphi, -aux_sphi, aux_sphi};
+
+        for(int i=0; i<4; i++)
+        {
+            cv::Mat Rp=cv::Mat::eye(3,3,CV_32F);
+            Rp.at<float>(0,0)=cphi;
+            Rp.at<float>(0,2)=sphi[i];
+            Rp.at<float>(1,1)=-1;
+            Rp.at<float>(2,0)=sphi[i];
+            Rp.at<float>(2,2)=-cphi;
+
+            cv::Mat R = s*U*Rp*Vt;
+            vR.push_back(R);
+
+            cv::Mat tp(3,1,CV_32F);
+            tp.at<float>(0)=x1[i];
+            tp.at<float>(1)=0;
+            tp.at<float>(2)=x3[i];
+            tp*=d1+d3;
+
+            cv::Mat t = U*tp;
+            vt.push_back(t/cv::norm(t));
+
+            cv::Mat np(3,1,CV_32F);
+            np.at<float>(0)=x1[i];
+            np.at<float>(1)=0;
+            np.at<float>(2)=x3[i];
+
+            cv::Mat n = V*np;
+            if(n.at<float>(2)<0)
+                n=-n;
+            vn.push_back(n);
+        }
     }
 
 
@@ -712,16 +727,24 @@ bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv:
     float bestParallax = -1;
     vector<cv::Point3f> bestP3D;
     vector<bool> bestTriangulated;
+    if (vR.size() == 0) {
+        return false;
+    }
 
     // Instead of applying the visibility constraints proposed in the Faugeras' paper (which could fail for points seen with low parallax)
     // We reconstruct all hypotheses and check in terms of triangulated points and parallax
-    for(size_t i=0; i<8; i++)
+    for(size_t i=0; i<vR.size(); i++)
     {
         float parallaxi;
         vector<cv::Point3f> vP3Di;
         vector<bool> vbTriangulatedi;
         //  #RECONSTUCTION
         int nGood = CheckRT(vR[i],vt[i],mvKeys1,mvKeys2,mvMatches12,vbMatchesInliers,K,vP3Di, 4.0*mSigma2, vbTriangulatedi, parallaxi);
+        LOGI("[R|T] = %d\n", nGood);
+        for (int k = 0; k < 3; k++) {
+            LOGI("%f\t%f\t%f\t|%f\n", vR[i].at<float>(k,0),vR[i].at<float>(k,1),vR[i].at<float>(k,2), vt[i].at<float>(k,0));
+        }
+
 
         if(nGood>bestGood)
         {
@@ -752,13 +775,13 @@ bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv:
 
     return false;
 }
-//中文版多视图几何P217线性三角形法
-    // 两个点:
+//linear triangle method
+// Two points:
 // |yp2   -  p1  |     |0|
 // |p0    -  xp2 | X = |0| ===> AX = 0
 // |y'p2' -  p1' |     |0|
 // |p0'   - x'p2'|     |0|
-// 变成程序中的形式：
+// Become a form in the program：
 // |xp2  - p0 |     |0|
 // |yp2  - p1 | X = |0| ===> AX = 0
 // |x'p2'- p0'|     |0|
