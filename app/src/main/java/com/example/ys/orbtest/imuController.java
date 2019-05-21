@@ -112,6 +112,11 @@ public class imuController extends FrameLayout implements SensorEventListener {
         manager.unregisterListener(this);
     }
 
+    public void Reset() {
+        Position.GetPosition();
+        Quaternion.GetRotation();
+    }
+
     private void flushSensorData() {
         AccelUpdate = false;
         GyroUpdate = false;
@@ -511,9 +516,9 @@ public class imuController extends FrameLayout implements SensorEventListener {
 
     public class MotionSensor {
         private float[] position;
+        private float[] curV;
         private float[] prevA;
         private float[] prevV;
-        private float[] prevP;
         private boolean velocityInit;
         private long prevTime;
         private final Semaphore lock;
@@ -522,19 +527,18 @@ public class imuController extends FrameLayout implements SensorEventListener {
             position = new float[3];
             prevA = new float[3];
             prevV = new float[3];
+            curV = new float[3];
             velocityInit = false;
             lock = new Semaphore(1, true);
             prevTime = 0;
-            prevP = new float[3];
-            for (int i = 0; i < prevP.length; i++) {
-                prevP[i] = 0;
-            }
             Reset();
         }
 
         public void Reset() {
             for (int i = 0; i < 3; i++) {
                 position[i] = 0;
+                curV[i] = 0;
+                prevV[i] = 0;
             }
             return;
         }
@@ -542,6 +546,7 @@ public class imuController extends FrameLayout implements SensorEventListener {
         public void Update(float ax, float ay, float az, long time) {
             try {
                 lock.acquire();
+
                 if (prevTime == 0) {
                     prevA[0] = ax;
                     prevA[1] = ay;
@@ -551,33 +556,26 @@ public class imuController extends FrameLayout implements SensorEventListener {
                     return;
                 }
 
-//                if (Math.abs(prevAccel[0] + prevAccel[1] + prevAccel[2] - ax - ay - az) > 5.0f) {
-//                    //  Data ejection
-//                    prevTime = time;
-//                    lock.release();
-//                    return;
-//                }
-
-                float dt = (time - prevTime) / (float)Math.pow(10, 9);  //  NS to S
-
+                float dt = (float)((time - prevTime) / (double)1000000000.0);  //  NS to S
+                System.out.println("A: [" + ax + ", " + ay + ", " + az +"]| " + dt);
+//                System.out.print(" " + dt);
                 if (dt > 1.0f) {
                     prevTime = time;
                     lock.release();
                     return;
                 }
-                float [] curVelocity = new float[3];
 
-                curVelocity[0] = prevV[0] + (prevA[0] + ((ax - prevA[0])/2)) * dt;
-                curVelocity[1] = prevV[1] + (prevA[1] + ((ay - prevA[1])/2)) * dt;
-                curVelocity[2] = prevV[2] + (prevA[2] + ((az - prevA[2])/2)) * dt;
-
+                curV[0] = prevV[0] + ((ax + prevA[0]) / 2) * dt;
+                curV[1] = prevV[1] + ((ay + prevA[1]) / 2) * dt;
+                curV[2] = prevV[2] + ((az + prevA[2]) / 2) * dt;
+                System.out.println("V:[" + curV[0] + ", " + curV[1] + ", " + curV[2] +"]| " + dt);
                 prevA[0] = ax;
                 prevA[1] = ay;
                 prevA[2] = az;
 
                 if (!velocityInit) {
-                    for (int i = 0; i < curVelocity.length; i++) {
-                        prevV[i] = curVelocity[i];
+                    for (int i = 0; i < curV.length; i++) {
+                        prevV[i] = curV[i];
                     }
                     velocityInit = true;
                     prevTime = time;
@@ -585,11 +583,13 @@ public class imuController extends FrameLayout implements SensorEventListener {
                     return;
                 }
 
-                float[] curPosition = new float[3];
-                for (int i = 0; i < curVelocity.length; i++) {
-                    curPosition[i] = prevP[i] + (prevV[i] + (curVelocity[i] - prevV[i])/2 ) * dt;
-                    position[i] += curPosition[i];
-                    prevP[i] = curPosition[i];
+                float curPosition;
+                for (int i = 0; i < curV.length; i++) {
+                    curPosition =  SensorDataHandler.GetAccuracy(((curV[i] + prevV[i])/2 ) * dt, 2);
+//                    curPosition = curVelocity[i] * dt;
+//                    curPosition = (prevV[i] + (curV[i] - prevV[i])/2) * dt;// + (ax - prevA[i]) * dt * dt / 4;
+                    position[i] += curPosition;
+                    prevV[i] = curV[i];
                 }
 
 
