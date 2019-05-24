@@ -10,6 +10,7 @@ import android.content.Context;
 
 import org.opencv.core.Mat;
 
+import java.util.ArrayList;
 import java.util.concurrent.Semaphore;
 
 import static org.opencv.core.CvType.CV_32F;
@@ -196,6 +197,14 @@ public class imuController extends FrameLayout implements SensorEventListener {
                 res += fraction;
             }
             return res;
+        }
+
+        static double Mean(double[] m) {
+            float sum = 0;
+            for (int i = 0; i < m.length; i++) {
+                sum += m[i];
+            }
+            return sum / m.length;
         }
     }
 
@@ -515,84 +524,116 @@ public class imuController extends FrameLayout implements SensorEventListener {
     }
 
     public class MotionSensor {
-        private float[] position;
-        private float[] curV;
-        private float[] prevA;
-        private float[] prevV;
-        private boolean velocityInit;
-        private long prevTime;
-        private final Semaphore lock;
+        private int cur;                //  count sampling from start
+        private int pointer;            //  current pointer in avg;
+        private int sample;             //  count sampling for average
+        private double[] position;       //  current position
+
+        private double[] prevV;          //  current velocity
+        private double[] prevAX;         //  prev average acceleration with OX
+        private double[] prevAY;         //  prev average acceleration with OY
+        private double[] prevAZ;         //  prev average acceleration with OZ
+        private double[] prevAvgA;       //  previously avg acceleration
+        private long prevTime;          //  previously time
+        private final Semaphore lock;   //  sync lock
+
 
         public MotionSensor(){
-            position = new float[3];
-            prevA = new float[3];
-            prevV = new float[3];
-            curV = new float[3];
-            velocityInit = false;
-            lock = new Semaphore(1, true);
+            sample = 10;
+            cur = 0;
             prevTime = 0;
+            pointer = 0;
+            position = new double[3];
+            prevAX = new double[sample];
+            prevAY = new double[sample];
+            prevAZ = new double[sample];
+            prevV = new double[3];
+            prevAvgA = new double[3];
+            lock = new Semaphore(1, true);
+
             Reset();
         }
 
         public void Reset() {
             for (int i = 0; i < 3; i++) {
                 position[i] = 0;
-                curV[i] = 0;
                 prevV[i] = 0;
             }
             return;
+        }
+        private void Swap() {
+            for (int i = 0; i < sample - 1; i++) {
+                prevAX[i] = prevAX[i+1];
+                prevAY[i] = prevAY[i+1];
+                prevAZ[i] = prevAZ[i+1];
+            }
         }
 
         public void Update(float ax, float ay, float az, long time) {
             try {
                 lock.acquire();
 
-                if (prevTime == 0) {
-                    prevA[0] = ax;
-                    prevA[1] = ay;
-                    prevA[2] = az;
+                if (cur < sample - 1) {
+                    prevAX[cur] = ax;
+                    prevAY[cur] = ay;
+                    prevAZ[cur] = az;
+                    prevTime = time;
+                    cur++;
+                    pointer++;
+                    lock.release();
+                    return;
+                }
+
+                double dt = (time - prevTime) /1000000000.0;  //  NS to S
+                if (dt > 1.0) {
                     prevTime = time;
                     lock.release();
                     return;
                 }
 
-                float dt = (float)((time - prevTime) / (double)1000000000.0);  //  NS to S
-                System.out.println("A: [" + ax + ", " + ay + ", " + az +"]| " + dt);
-//                System.out.print(" " + dt);
-                if (dt > 1.0f) {
+                prevAX[pointer] = ax;
+                prevAY[pointer] = ay;
+                prevAZ[pointer] = az;
+
+                if (cur < sample) {
+                    prevAvgA[0] = SensorDataHandler.Mean(prevAX);
+                    prevAvgA[1] = SensorDataHandler.Mean(prevAY);
+                    prevAvgA[2] = SensorDataHandler.Mean(prevAZ);
+                    cur++;
+                    Swap();
                     prevTime = time;
                     lock.release();
                     return;
                 }
 
-                curV[0] = prevV[0] + ((ax + prevA[0]) / 2) * dt;
-                curV[1] = prevV[1] + ((ay + prevA[1]) / 2) * dt;
-                curV[2] = prevV[2] + ((az + prevA[2]) / 2) * dt;
-                System.out.println("V:[" + curV[0] + ", " + curV[1] + ", " + curV[2] +"]| " + dt);
-                prevA[0] = ax;
-                prevA[1] = ay;
-                prevA[2] = az;
 
-                if (!velocityInit) {
-                    for (int i = 0; i < curV.length; i++) {
-                        prevV[i] = curV[i];
+                double[] cA = new double[3];
+                cA[0] = SensorDataHandler.Mean(prevAX);
+                cA[1] = SensorDataHandler.Mean(prevAY);
+                cA[2] = SensorDataHandler.Mean(prevAZ);
+                Swap();
+
+                double[] velocity = new double[3];
+                for (int i = 0; i < 3; i++) {
+                    velocity[i] = prevV[i] + (cA[i] + prevAvgA[i])/2*dt;
+                }
+
+                if (cur == sample) {
+                    for (int i = 0; i < 3; i ++) {
+                        prevV[i] = velocity[i];
                     }
-                    velocityInit = true;
+                    cur++;
                     prevTime = time;
                     lock.release();
                     return;
                 }
 
-                float curPosition;
-                for (int i = 0; i < curV.length; i++) {
-                    curPosition =  SensorDataHandler.GetAccuracy(((curV[i] + prevV[i])/2 ) * dt, 2);
-//                    curPosition = curVelocity[i] * dt;
-//                    curPosition = (prevV[i] + (curV[i] - prevV[i])/2) * dt;// + (ax - prevA[i]) * dt * dt / 4;
-                    position[i] += curPosition;
-                    prevV[i] = curV[i];
+                prevAvgA = cA;
+
+                for (int i = 0; i < velocity.length; i++) {
+                    position[i] += (velocity[i] + prevV[i]) / 2 * dt;
                 }
-
-
+                prevV = velocity;
                 prevTime = time;
                 lock.release();
             }catch (InterruptedException err) {}
@@ -603,7 +644,7 @@ public class imuController extends FrameLayout implements SensorEventListener {
             try {
                 lock.acquire();
                 for(int i = 0; i < 3; i++)
-                    res[i] = position[i];
+                    res[i] = (float)position[i];
                 lock.release();
 
 //                Reset();
