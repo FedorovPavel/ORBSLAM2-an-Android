@@ -174,6 +174,7 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
         mTimer = new Timer();
         mTimerTask = new MyTimerTask();
         mTimer.schedule(mTimerTask, 1000, 1000);
+//        sensor.Reset();
     }
 
     @Override

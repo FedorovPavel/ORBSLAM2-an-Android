@@ -273,7 +273,7 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
     sprintf(rt_string, "[%.2f,%.2f,%.2f]\0", (*rtMat).at<float>(2,0), (*rtMat).at<float>(2,1), (*rtMat).at<float>(2,2));
     cv::putText(*pMat, rt_string , cv::Point(0,190), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,255), 2);
 
-    sprintf(rt_string, "[%.2f,%.2f,%.2f]\0", (*rtMat).at<float>(3,0),(*rtMat).at<float>(3,1),(*rtMat).at<float>(3,2));
+    sprintf(rt_string, "[%.2f,%.2f,%.2f]\0", (*rtMat).at<float>(0,3),(*rtMat).at<float>(1,3),(*rtMat).at<float>(2,3));
     cv::putText(*pMat, rt_string , cv::Point(0,210), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(170,170,255), 2);
 
     switch (SLAM.GetTrackingState()) {

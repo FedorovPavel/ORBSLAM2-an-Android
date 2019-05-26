@@ -168,7 +168,7 @@ void Tracking::SetLoopClosing(LoopClosing *pLoopClosing)
 cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp, cv::Mat &rt)
 {
 
-    LOGI("Tracking::GrabImageMonocular======================");
+    //LOGI("Tracking::GrabImageMonocular======================");
     mImGray = im;
 
     if(mImGray.channels()==3)

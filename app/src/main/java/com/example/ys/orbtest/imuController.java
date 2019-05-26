@@ -5,13 +5,21 @@ import android.hardware.SensorManager;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 
+import android.os.Environment;
 import android.widget.FrameLayout;
 import android.content.Context;
 
 import org.opencv.core.Mat;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.util.ArrayList;
+import java.io.IOException;
+import com.example.ys.orbtest.FiltFilt;
+
+import java.util.Arrays;
 import java.util.concurrent.Semaphore;
+import uk.me.berndporr.iirj.*;
 
 import static org.opencv.core.CvType.CV_32F;
 
@@ -130,26 +138,24 @@ public class imuController extends FrameLayout implements SensorEventListener {
         try {
             switch (event.sensor.getType()) {
                 case Sensor.TYPE_ACCELEROMETER: {
-                    AccelData[0] = SensorDataHandler.GetAccuracy(-event.values[1] + 0.025f,2);
+                    AccelData[0] = SensorDataHandler.GetAccuracy(-event.values[1],2);
                     AccelData[1] = SensorDataHandler.GetAccuracy(event.values[0],2);
                     AccelData[2] = SensorDataHandler.GetAccuracy(event.values[2],2);
+
                     AccelUpdate = true;
                     return;
                 }
                 case Sensor.TYPE_GYROSCOPE: {
-                    GyroData[0] = SensorDataHandler.GetAccuracy(event.values[1], 2);
-                    GyroData[1] = SensorDataHandler.GetAccuracy(-event.values[0], 2);
+                    GyroData[0] = SensorDataHandler.GetAccuracy(-event.values[1], 2);
+                    GyroData[1] = SensorDataHandler.GetAccuracy(event.values[0], 2);
                     GyroData[2] = SensorDataHandler.GetAccuracy(event.values[2], 2);
                     GyroUpdate = true;
                     return;
                 }
                 case Sensor.TYPE_MAGNETIC_FIELD: {
-                    MagnetData[0] = -event.values[0];
-                    MagnetData[1] = -event.values[1];
-                    MagnetData[2] = event.values[2];
-                    for (int i = 0; i < MagnetData.length; i++) {
-                        MagnetData[i] = SensorDataHandler.GetAccuracy(MagnetData[i],2);
-                    }
+                    MagnetData[0] = SensorDataHandler.GetAccuracy(-event.values[0],2);
+                    MagnetData[1] = SensorDataHandler.GetAccuracy(event.values[1], 2);
+                    MagnetData[2] = SensorDataHandler.GetAccuracy(event.values[2], 2);
                     MagnetUpdate = true;
                     if (AccelUpdate && GyroUpdate && MagnetUpdate) {
                         Quaternion.Update(AccelData, GyroData, MagnetData, event.timestamp);
@@ -157,10 +163,10 @@ public class imuController extends FrameLayout implements SensorEventListener {
                     return;
                 }
                 case Sensor.TYPE_LINEAR_ACCELERATION: {
-                    float ax = -SensorDataHandler.GetAccuracy(event.values[1], 2);
-                    float ay = SensorDataHandler.GetAccuracy(event.values[0], 2);
-                    float az = SensorDataHandler.GetAccuracy(event.values[2], 2);
-                    Position.Update(ax, ay, az, event.timestamp);
+                    float ax = -SensorDataHandler.GetAccuracy(event.values[1], 8);
+                    float ay = SensorDataHandler.GetAccuracy(event.values[0], 8);
+                    float az = SensorDataHandler.GetAccuracy(event.values[2], 8);
+                    Position.Update(ax, ay, az, AccelData, GyroData, MagnetData, event.timestamp);
                     return;
                 }
             }
@@ -535,6 +541,11 @@ public class imuController extends FrameLayout implements SensorEventListener {
         private double[] prevAZ;         //  prev average acceleration with OZ
         private double[] prevAvgA;       //  previously avg acceleration
         private long prevTime;          //  previously time
+        private ArrayList<double[]> AL;
+        private ArrayList<double[]> A;
+        private ArrayList<double[]> G;
+        private ArrayList<double[]> M;
+        private Butterworth butter;
         private final Semaphore lock;   //  sync lock
 
 
@@ -549,8 +560,12 @@ public class imuController extends FrameLayout implements SensorEventListener {
             prevAZ = new double[sample];
             prevV = new double[3];
             prevAvgA = new double[3];
+            butter = new Butterworth();
             lock = new Semaphore(1, true);
-
+            AL = new ArrayList<>();
+            A = new ArrayList<>();
+            G = new ArrayList<>();
+            M = new ArrayList<>();
             Reset();
         }
 
@@ -569,72 +584,197 @@ public class imuController extends FrameLayout implements SensorEventListener {
             }
         }
 
-        public void Update(float ax, float ay, float az, long time) {
+        public void Update(float ax, float ay, float az, float[] a, float[] g, float[] m, long time) {
             try {
                 lock.acquire();
 
-                if (cur < sample - 1) {
-                    prevAX[cur] = ax;
-                    prevAY[cur] = ay;
-                    prevAZ[cur] = az;
+                if (cur < 1) {
+//                    prevAX[cur] = ax;
+//                    prevAY[cur] = ay;
+//                    prevAZ[cur] = az;
                     prevTime = time;
                     cur++;
-                    pointer++;
+//                    pointer++;
                     lock.release();
                     return;
                 }
-
+//
                 double dt = (time - prevTime) /1000000000.0;  //  NS to S
-                if (dt > 1.0) {
-                    prevTime = time;
-                    lock.release();
-                    return;
+                double[] item = new double[4];
+                item[0] = ax;
+                item[1] = ay;
+                item[2] = az;
+                item[3] = dt;
+                AL.add(item);
+
+                for (int i = 0; i<3; i++) {
+                    item[0] = a[i];
                 }
+                A.add(item);
 
-                prevAX[pointer] = ax;
-                prevAY[pointer] = ay;
-                prevAZ[pointer] = az;
-
-                if (cur < sample) {
-                    prevAvgA[0] = SensorDataHandler.Mean(prevAX);
-                    prevAvgA[1] = SensorDataHandler.Mean(prevAY);
-                    prevAvgA[2] = SensorDataHandler.Mean(prevAZ);
-                    cur++;
-                    Swap();
-                    prevTime = time;
-                    lock.release();
-                    return;
+                for (int i = 0; i<3; i++) {
+                    item[0] = g[i];
                 }
+                G.add(item);
 
-
-                double[] cA = new double[3];
-                cA[0] = SensorDataHandler.Mean(prevAX);
-                cA[1] = SensorDataHandler.Mean(prevAY);
-                cA[2] = SensorDataHandler.Mean(prevAZ);
-                Swap();
-
-                double[] velocity = new double[3];
-                for (int i = 0; i < 3; i++) {
-                    velocity[i] = prevV[i] + (cA[i] + prevAvgA[i])/2*dt;
+                for (int i = 0; i<3; i++) {
+                    item[0] = m[i];
                 }
+                M.add(item);
+                pointer++;
+                if (pointer == 10000) {
+                    File file;
+                    try {
+                        file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "A");
+                        FileOutputStream outputStream = new FileOutputStream(file);
+                        String string;
+                        for (int i = 0; i < A.size(); i++) {
+                            string = A.get(i)[0] + "," + A.get(i)[1] + "," + A.get(i)[1] + "\n";
+                            outputStream.write(string.getBytes());
+                        }
+                        outputStream.close();
 
-                if (cur == sample) {
-                    for (int i = 0; i < 3; i ++) {
-                        prevV[i] = velocity[i];
+                        file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "AL");
+                        outputStream = new FileOutputStream(file);
+                        for (int i = 0; i < AL.size(); i++) {
+                            string = AL.get(i)[0] + "," + AL.get(i)[1] + "," + AL.get(i)[1] + "\n";
+                            outputStream.write(string.getBytes());
+                        }
+                        outputStream.close();
+
+                        file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "G");
+                        outputStream = new FileOutputStream(file);
+                        for (int i = 0; i < G.size(); i++) {
+                            string = G.get(i)[0] + "," + G.get(i)[1] + "," + G.get(i)[1] + "\n";
+                            outputStream.write(string.getBytes());
+                        }
+                        outputStream.close();
+
+                        file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "M");
+                        outputStream = new FileOutputStream(file);
+                        for (int i = 0; i < M.size(); i++) {
+                            string = M.get(i)[0] + "," + M.get(i)[1] + "," + M.get(i)[1] + "\n";
+                            outputStream.write(string.getBytes());
+                        }
+                        outputStream.close();
+                        position[0] = 10000;
+                    }catch (Exception err) {
+                        System.out.print("OK");
                     }
-                    cur++;
-                    prevTime = time;
-                    lock.release();
-                    return;
                 }
+//                System.out.println("|A|[" + ax + "," + ay + "," + az + ","+ Double.toString(dt) + "]");
+//                if (dt > 1.0) {
+//                    prevTime = time;
+//                    lock.release();
+//                    return;
+//                }
+//
+//                prevAX[pointer] = ax;
+//                prevAY[pointer] = ay;
+//                prevAZ[pointer] = az;
+//
+//                //  Compute accelerometer magnitude
+//                ArrayList<Double> accMagnitudes = new ArrayList<Double>();
+//                for (int i = 0; i < pointer; i++) {
+//                    accMagnitudes.add(Math.sqrt(prevAX[i] * prevAX[i] + prevAY[i]* prevAY[i] + prevAZ[i] * prevAZ[i]));
+//                }
+//                float freq = 0.1f;
+//
+                //  HP filter accelerometer data
+//                butter.highPass(1, dt, (2 * freq/ (1/dt)));
+//                Biquad coef = butter.getBiquad(0);
+//                ArrayList<Double> B = new ArrayList<>(3);
+//                B.add(coef.getB0());
+//                B.add(coef.getB1());
+//                B.add(coef.getB2());
+//
+//                ArrayList<Double> A = new ArrayList<>(3);
+//                A.add(coef.getA0());
+//                A.add(coef.getA1());
+//                A.add(coef.getA2());
+//
+//                ArrayList<Double> accMagnitudesFiltered = FiltFilt.doFiltfilt(B, A, accMagnitudes);
+//
+//                //  Get absolute value
+//                for (int i = 0; i < accMagnitudesFiltered.size(); i++) {
+//                    accMagnitudesFiltered.set(i, Math.abs(accMagnitudesFiltered.get(i)));
+//                }
+//
+//                //  LP
+//                freq = 5.5f;
+//                butter.lowPass(1, dt, (2* freq /(1/dt)));
+//                coef = butter.getBiquad(0);
+//                B.clear();
+//                B.add(coef.getB0());
+//                B.add(coef.getB1());
+//                B.add(coef.getB2());
+//
+//                A.clear();
+//                A.add(coef.getA0());
+//                A.add(coef.getA1());
+//                A.add(coef.getA2());
+//
+//                accMagnitudes.clear();
+//                accMagnitudes.addAll(accMagnitudesFiltered);
+//                accMagnitudesFiltered = FiltFilt.doFiltfilt(B, A, accMagnitudes);
 
-                prevAvgA = cA;
+//                int[] stationary = new int[sample - 1];
+//                for (int i = 0; i < sample - 1; i++) {
+//                    if (accMagnitudes.get(i) < 0.05) {
+//                        stationary[i] = 1;
+//                    } else {
+//                        stationary[i] = 0;
+//                    }
+//                }
 
-                for (int i = 0; i < velocity.length; i++) {
-                    position[i] += (velocity[i] + prevV[i]) / 2 * dt;
-                }
-                prevV = velocity;
-                prevTime = time;
+//                if (cur < sample) {
+//                    prevAvgA[0] = SensorDataHandler.Mean(prevAX);
+//                    prevAvgA[1] = SensorDataHandler.Mean(prevAY);
+//                    prevAvgA[2] = SensorDataHandler.Mean(prevAZ);
+//                    cur++;
+//                    Swap();
+//                    prevTime = time;
+//                    lock.release();
+//                    return;
+//                }
+
+
+//                double[] cA = new double[3];
+//                cA[0] = SensorDataHandler.Mean(prevAX);
+//                cA[1] = SensorDataHandler.Mean(prevAY);
+//                cA[2] = SensorDataHandler.Mean(prevAZ);
+//                Swap();
+
+//                double[] velocity = new double[3];
+//                if (stationary[sample - 2] == 1) {
+//                    for (int i = 0; i < 3; i++) {
+//                        velocity[i] = 0;
+//                    }
+//                } else {
+//                    velocity[0] = prevV[0] + (prevAX[sample-2] + prevAX[sample-3])/2*dt;
+//                    velocity[1] = prevV[1] + (prevAY[sample-2] + prevAY[sample-3])/2*dt;
+//                    velocity[2] = prevV[2] + (prevAZ[sample-2] + prevAZ[sample-3])/2*dt;
+//                }
+//
+//
+
+//                if (cur == sample) {
+//                    for (int i = 0; i < 3; i ++) {
+//                        prevV[i] = velocity[i];
+//                    }
+//                    cur++;
+//                    prevTime = time;
+//                    lock.release();
+//                    return;
+//                }
+
+//                prevAvgA = cA;
+
+//                for (int i = 0; i < velocity.length; i++) {
+//                    position[i] += (velocity[i] + prevV[i]) / 2 * dt;
+//                }
+//                prevV = velocity;
+//                prevTime = time;
                 lock.release();
             }catch (InterruptedException err) {}
         }

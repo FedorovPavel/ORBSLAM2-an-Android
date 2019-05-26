@@ -52,6 +52,7 @@ dependencies {
     compile 'com.android.support.constraint:constraint-layout:1.0.2'
     testCompile 'junit:junit:4.12'
     compile project(':openCVLibrary320')
-    compile files('lib/commons-math3-3.6.1.jar')
+//    compile files('lib/commons-math3-3.6.1.jar')
+    compile group: 'uk.me.berndporr', name:'iirj', version: '1.1'
 //    implementation 'com.googlecode.boost-maven-project:boost:1.49.0-b1'
 }
