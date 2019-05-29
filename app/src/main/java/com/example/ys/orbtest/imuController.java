@@ -19,20 +19,33 @@ import com.example.ys.orbtest.FiltFilt;
 
 import java.util.Arrays;
 import java.util.concurrent.Semaphore;
+
+import edu.mines.jtk.dsp.ButterworthFilter;
 import uk.me.berndporr.iirj.*;
+import edu.mines.jtk.*;
 
 import static org.opencv.core.CvType.CV_32F;
 
-
 public class imuController extends FrameLayout implements SensorEventListener {
 
-//    private static final float NS2S = 1.0f / 1000000000.0f;
+    private double MaxAcc;
+    private double MaxGyr;
+    private double MaxMag;
+    private double MaxAccLin;
+    private double AccNoise;
+    private double GyrNoise;
+    private double MagNoise;
+    private double AccLinNoise;
     private SensorManager manager;
     private Sensor mGyroscope;
     private Sensor mAccelerometer;
     private Sensor mMagnetrometer;
     private Sensor mLinearAccelerometer;
-
+    private Semaphore lockAcc;
+    private Semaphore lockGyr;
+    private Semaphore lockMag;
+    private Semaphore lockAccLin;
+    private static int AXIS = 3;
 
     private AHRS Quaternion;
     private MotionSensor Position;
@@ -60,6 +73,18 @@ public class imuController extends FrameLayout implements SensorEventListener {
         AccelData = new float[3];
         GyroData = new float[3];
         MagnetData = new float[3];
+
+        lockAcc = new Semaphore(1, true);
+        lockGyr = new Semaphore(1, true);
+        lockMag = new Semaphore(1, true);
+        lockAccLin = new Semaphore(1, true);
+
+        //  Set phone param
+        MaxAcc = 40.0;
+        MaxGyr = 60.0;
+        MaxMag = 360;
+        MaxAccLin = 20;
+
 
         flushSensorData();
 
@@ -121,15 +146,19 @@ public class imuController extends FrameLayout implements SensorEventListener {
         manager.unregisterListener(this);
     }
 
-    public void Reset() {
-        Position.GetPosition();
-        Quaternion.GetRotation();
-    }
-
     private void flushSensorData() {
         AccelUpdate = false;
         GyroUpdate = false;
         MagnetUpdate = false;
+    }
+
+    public boolean checkCorrectnessSensorData(float[] data, double max) {
+        for (int i = 0; i < AXIS; i++) {
+            if (Math.abs(data[i]) > max) {
+                return false;
+            }
+        }
+        return true;
     }
 
 
@@ -138,35 +167,64 @@ public class imuController extends FrameLayout implements SensorEventListener {
         try {
             switch (event.sensor.getType()) {
                 case Sensor.TYPE_ACCELEROMETER: {
-                    AccelData[0] = SensorDataHandler.GetAccuracy(-event.values[1],2);
-                    AccelData[1] = SensorDataHandler.GetAccuracy(event.values[0],2);
-                    AccelData[2] = SensorDataHandler.GetAccuracy(event.values[2],2);
-
+                    lockAcc.acquire();
+                    if (!checkCorrectnessSensorData(event.values, MaxAcc)) {
+                        lockAcc.release();
+                        return;
+                    }
+                    AccelData[0] = SensorDataHandler.GetAccuracy(-event.values[1],8);
+                    AccelData[1] = SensorDataHandler.GetAccuracy(event.values[0],8);
+                    AccelData[2] = SensorDataHandler.GetAccuracy(event.values[2],8);
                     AccelUpdate = true;
+                    lockAcc.release();
                     return;
                 }
                 case Sensor.TYPE_GYROSCOPE: {
-                    GyroData[0] = SensorDataHandler.GetAccuracy(-event.values[1], 2);
-                    GyroData[1] = SensorDataHandler.GetAccuracy(event.values[0], 2);
-                    GyroData[2] = SensorDataHandler.GetAccuracy(event.values[2], 2);
+                    lockGyr.acquire();
+                    if (!checkCorrectnessSensorData(event.values, MaxGyr)) {
+                        lockGyr.release();
+                        return;
+                    }
+                    GyroData[0] = SensorDataHandler.GetAccuracy(-event.values[1], 8);
+                    GyroData[1] = SensorDataHandler.GetAccuracy(event.values[0], 8);
+                    GyroData[2] = SensorDataHandler.GetAccuracy(-event.values[2], 8);
                     GyroUpdate = true;
+                    lockGyr.release();
                     return;
                 }
                 case Sensor.TYPE_MAGNETIC_FIELD: {
-                    MagnetData[0] = SensorDataHandler.GetAccuracy(-event.values[0],2);
-                    MagnetData[1] = SensorDataHandler.GetAccuracy(event.values[1], 2);
-                    MagnetData[2] = SensorDataHandler.GetAccuracy(event.values[2], 2);
-                    MagnetUpdate = true;
-                    if (AccelUpdate && GyroUpdate && MagnetUpdate) {
-                        Quaternion.Update(AccelData, GyroData, MagnetData, event.timestamp);
+                    lockMag.acquire();
+                    if (!checkCorrectnessSensorData(event.values, MaxMag)) {
+                        lockMag.release();
+                        return;
                     }
+                    MagnetData[0] = SensorDataHandler.GetAccuracy(-event.values[1],8);
+                    MagnetData[1] = SensorDataHandler.GetAccuracy(event.values[0], 8);
+                    MagnetData[2] = SensorDataHandler.GetAccuracy(event.values[2], 8);
+                    MagnetUpdate = true;
+                    lockMag.release();
                     return;
                 }
                 case Sensor.TYPE_LINEAR_ACCELERATION: {
-                    float ax = -SensorDataHandler.GetAccuracy(event.values[1], 8);
-                    float ay = SensorDataHandler.GetAccuracy(event.values[0], 8);
-                    float az = SensorDataHandler.GetAccuracy(event.values[2], 8);
-                    Position.Update(ax, ay, az, AccelData, GyroData, MagnetData, event.timestamp);
+                    lockAccLin.acquire();
+                    if (!checkCorrectnessSensorData(event.values, MaxAccLin)) {
+                        lockAccLin.release();
+                        return;
+                    }
+                    lockAcc.acquire();
+                    lockGyr.acquire();
+                    lockMag.acquire();
+                    float[] al = new float[AXIS];
+                    al[0] = SensorDataHandler.GetAccuracy(-event.values[1], 8);
+                    al[1] = SensorDataHandler.GetAccuracy(event.values[0], 8);
+                    al[2] = SensorDataHandler.GetAccuracy(event.values[2], 8);
+
+                    Position.Update(al, AccelData, GyroData, MagnetData, event.timestamp);
+                    Quaternion.Update(AccelData, GyroData, event.timestamp);
+                    lockMag.release();
+                    lockGyr.release();
+                    lockAcc.release();
+                    lockAccLin.release();
                     return;
                 }
             }
@@ -220,11 +278,15 @@ public class imuController extends FrameLayout implements SensorEventListener {
         public float[] Quaternion;
         private Semaphore lock;
         private float[] accelLastData;
+        private float[] initError;
+        private float Ki;
 
         public AHRS(float beta) {
             this.Beta = beta;
             this.Quaternion = new float[4];
             accelLastData = new float[4];
+            initError = new float[3];
+            Ki = 1;
             lock = new Semaphore(1);
             Reset();
         }
@@ -234,6 +296,10 @@ public class imuController extends FrameLayout implements SensorEventListener {
             this.Quaternion[1] = 0;
             this.Quaternion[2] = 0;
             this.Quaternion[3] = 0;
+
+            for (int i = 0; i < initError.length; i++) {
+                initError[i] = 0;
+            }
             return true;
         }
 
@@ -434,6 +500,243 @@ public class imuController extends FrameLayout implements SensorEventListener {
             return;
         }
 
+        public void Update(float[] a, float[] g, float[] m, double dt, double Kp) {
+
+            //  Normalise accelerometer measurement
+            float ax,ay,az;
+            float gx,gy,gz;
+            float mx,my,mz;
+            ax = a[0]; ay = a[1]; az = a[2];
+            gx = g[0]; gy = g[1]; gz = g[2];
+            mx = m[0]; my = m[1]; mz = m[2];
+
+            float q1 = Quaternion[0];
+            float q2 = Quaternion[1];
+            float q3 = Quaternion[2];
+            float q4 = Quaternion[3];
+
+            float norm;
+            float hx, hy, _2bx, _2bz;
+            float s1, s2, s3, s4;
+            float qDot1, qDot2, qDot3, qDot4;
+
+            // Auxiliary variables to avoid repeated arithmetic
+            float _2q1mx;
+            float _2q1my;
+            float _2q1mz;
+            float _2q2mx;
+            float _4bx;
+            float _4bz;
+            float _2q1 = 2f * q1;
+            float _2q2 = 2f * q2;
+            float _2q3 = 2f * q3;
+            float _2q4 = 2f * q4;
+            float _2q1q3 = 2f * q1 * q3;
+            float _2q3q4 = 2f * q3 * q4;
+            float q1q1 = q1 * q1;
+            float q1q2 = q1 * q2;
+            float q1q3 = q1 * q3;
+            float q1q4 = q1 * q4;
+            float q2q2 = q2 * q2;
+            float q2q3 = q2 * q3;
+            float q2q4 = q2 * q4;
+            float q3q3 = q3 * q3;
+            float q3q4 = q3 * q4;
+            float q4q4 = q4 * q4;
+
+            // Normalise accelerometer measurement
+            norm = (float)Math.sqrt(ax * ax + ay * ay + az * az);
+            if (norm == 0f) {
+                return;
+            }
+
+            norm = 1 / norm;        // use reciprocal for division
+            a[0] *= norm;
+            a[1] *= norm;
+            a[2] *= norm;
+
+            // Normalise magnetometer measurement
+            norm = (float)Math.sqrt(mx * mx + my * my + mz * mz);
+            if (norm == 0f) {
+                return;
+            }
+
+            norm = 1 / norm;        // use reciprocal for division
+            m[0] *= norm;
+            m[1] *= norm;
+            m[2] *= norm;
+
+            //  Compute error between estimated and measured direction of gravity
+            float[] v = new float[3];
+            v[0] = 2*q2*q4 - q1*q3;
+            v[1] = 2*q1*q2 + q3*q4;
+            v[2] = q1 * q1 - q2 * q2 - q3 * q3 + q4 * q4;               	// estimated direction of gravity
+            float[] error = cross(v, a);
+
+            // compute integral feedback terms (only outside of init period)
+            for (int i = 0; i < initError.length; i++) {
+                initError[i] += error[i];
+            }
+
+            // Apply feedback terms
+            float[] ref = new float[3];
+            for (int i = 0; i < ref.length; i++) {
+                ref[i] = (float)(g[i] - (Kp*error[i] +  Ki*initError[i]));
+            }
+
+            // Compute rate of change of quaternion
+            float[] vectorOfRef = new float[4];
+            vectorOfRef[0] = 0;
+            for (int i = 0; i < ref.length; i++) {
+                vectorOfRef[i+1] = ref[i];
+            }
+            float[] s = MultipleQuaternion(Quaternion.clone(), vectorOfRef);
+            for (int i = 0; i < s.length; i++) {
+                s[i] *= 0.5f;
+            }
+            q1 += s[0] * dt;
+            q2 += s[1] * dt;
+            q3 += s[2] * dt;
+            q4 += s[3] * dt;
+
+            norm = (float)Math.sqrt(q1 * q1 + q2 * q2 + q3 * q3 + q4 * q4);    // normalise quaternion
+            if (norm == 0f) {
+                prevTime = (long)dt;
+                lock.release();
+                return;
+            }
+            norm = 1f / norm;
+            Quaternion[0] = q1 * norm;
+            Quaternion[1] = q2 * norm;
+            Quaternion[2] = q3 * norm;
+            Quaternion[3] = q4 * norm;
+
+            try {
+                lock.acquire();
+                if (dt < 5000) {
+                    lock.release();
+                    return;
+                }
+                ax = a[0]; ay = a[1]; az = a[2];
+                gx = g[0]; gy = g[1]; gz = g[2];
+                mx = m[0]; my = m[1]; mz = m[2];
+                if (Math.abs(accelLastData[0] + accelLastData[1] + accelLastData[2] - ax -ay -az) > 8.0f) {
+                    //  Data ejection
+                    prevTime = (long)dt;
+                    lock.release();
+                    return;
+                }
+
+
+                float SamplePeriod = (float)dt;     // ns into s
+                if (SamplePeriod > 1.0f) {
+                    prevTime = (long)dt;
+                    lock.release();
+                    return;
+                }
+                SamplePeriod += 0.0000000001f;
+
+                // Normalise accelerometer measurement
+                norm = (float)Math.sqrt(ax * ax + ay * ay + az * az);
+                if (norm == 0f) {
+                    prevTime = (long)dt;
+                    lock.release();
+                    return;
+                }
+                norm = 1 / norm;        // use reciprocal for division
+                a[0] *= norm;
+                a[1] *= norm;
+                a[2] *= norm;
+
+                // Normalise magnetometer measurement
+                norm = (float)Math.sqrt(mx * mx + my * my + mz * mz);
+                if (norm == 0f) {
+                    prevTime = (long)dt;
+                    lock.release();
+                    return;
+                }
+                norm = 1 / norm;        // use reciprocal for division
+                m[0] *= norm;
+                m[1] *= norm;
+                m[2] *= norm;
+
+                // Reference direction of Earth's magnetic field
+                _2q1mx = 2f * q1 * mx;
+                _2q1my = 2f * q1 * my;
+                _2q1mz = 2f * q1 * mz;
+                _2q2mx = 2f * q2 * mx;
+                hx = mx * q1q1 - _2q1my * q4 + _2q1mz * q3 + mx * q2q2 + _2q2 * my * q3
+                        + _2q2 * mz * q4 - mx * q3q3 - mx * q4q4;
+                hy = _2q1mx * q4 + my * q1q1 - _2q1mz * q2 + _2q2mx * q3 - my * q2q2
+                        + my * q3q3 + _2q3 * mz * q4 - my * q4q4;
+
+                _2bx = (float) Math.sqrt(hx * hx + hy * hy);
+                _2bz = -_2q1mx * q3 + _2q1my * q2 + mz * q1q1 + _2q2mx * q4 - mz * q2q2
+                        + _2q3 * my * q4 - mz * q3q3 + mz * q4q4;
+                _4bx = 2f * _2bx;
+                _4bz = 2f * _2bz;
+
+                // Gradient decent algorithm corrective step
+                s1 = -_2q3 * (2f * q2q4 - _2q1q3 - ax) + _2q2 * (2f * q1q2 + _2q3q4 - ay)
+                        - _2bz * q3 * (_2bx * (0.5f - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - mx)
+                        + (-_2bx * q4 + _2bz * q2) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - my)
+                        + _2bx * q3 * (_2bx * (q1q3 + q2q4) + _2bz * (0.5f - q2q2 - q3q3) - mz);
+                s2 = _2q4 * (2f * q2q4 - _2q1q3 - ax) + _2q1 * (2f * q1q2 + _2q3q4 - ay)
+                        - 4f * q2 * (1 - 2f * q2q2 - 2f * q3q3 - az)
+                        + _2bz * q4 * (_2bx * (0.5f - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - mx)
+                        + (_2bx * q3 + _2bz * q1) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - my)
+                        + (_2bx * q4 - _4bz * q2) * (_2bx * (q1q3 + q2q4) + _2bz * (0.5f - q2q2 - q3q3) - mz);
+                s3 = -_2q1 * (2f * q2q4 - _2q1q3 - ax) + _2q4 * (2f * q1q2 + _2q3q4 - ay)
+                        - 4f * q3 * (1 - 2f * q2q2 - 2f * q3q3 - az)
+                        + (-_4bx * q3 - _2bz * q1) * (_2bx * (0.5f - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - mx)
+                        + (_2bx * q2 + _2bz * q4) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - my)
+                        + (_2bx * q1 - _4bz * q3) * (_2bx * (q1q3 + q2q4) + _2bz * (0.5f - q2q2 - q3q3) - mz);
+                s4 = _2q2 * (2f * q2q4 - _2q1q3 - ax) + _2q3 * (2f * q1q2 + _2q3q4 - ay)
+                        + (-_4bx * q4 + _2bz * q2) * (_2bx * (0.5f - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - mx)
+                        + (-_2bx * q1 + _2bz * q3) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - my)
+                        + _2bx * q2 * (_2bx * (q1q3 + q2q4) + _2bz * (0.5f - q2q2 - q3q3) - mz);
+                norm = (float)Math.sqrt(s1 * s1 + s2 * s2 + s3 * s3 + s4 * s4);    // normalise step magnitude
+
+                if (norm == 0f) {
+                    prevTime = (long)dt;
+                    lock.release();
+                    return;
+                }
+                norm = 1f / norm;
+                s1 *= norm;
+                s2 *= norm;
+                s3 *= norm;
+                s4 *= norm;
+
+                // Compute rate of change of quaternion
+                qDot1 = 0.5f * (-q2 * gx - q3 * gy - q4 * gz) - Beta * s1;
+                qDot2 = 0.5f * (q1 * gx + q3 * gz - q4 * gy) - Beta * s2;
+                qDot3 = 0.5f * (q1 * gy - q2 * gz + q4 * gx) - Beta * s3;
+                qDot4 = 0.5f * (q1 * gz + q2 * gy - q3 * gx) - Beta * s4;
+
+                // Integrate to yield quaternion
+                q1 += qDot1 * SamplePeriod;
+                q2 += qDot2 * SamplePeriod;
+                q3 += qDot3 * SamplePeriod;
+                q4 += qDot4 * SamplePeriod;
+                norm = (float)Math.sqrt(q1 * q1 + q2 * q2 + q3 * q3 + q4 * q4);    // normalise quaternion
+                if (norm == 0f) {
+                    prevTime = (long)dt;
+                    lock.release();
+                    return;
+                }
+                norm = 1f / norm;
+                Quaternion[0] = q1 * norm;
+                Quaternion[1] = q2 * norm;
+                Quaternion[2] = q3 * norm;
+                Quaternion[3] = q4 * norm;
+
+                prevTime = (long)dt;
+                lock.release();
+            } catch (InterruptedException err) {}
+            return;
+        }
+
         public void Update(float[] a, float[] g, long time) {
             if (prevTime == 0) {
                 for (int i = 0; i < a.length;i++)
@@ -527,141 +830,266 @@ public class imuController extends FrameLayout implements SensorEventListener {
                 lock.release();
             } catch (InterruptedException err) {}
         }
+
+        public float[] Rotate(float[] vector, float[] quaternion) {
+            float [] temp;
+            float [] transformVector = new float[4];
+            transformVector[0] = 0;
+            for (int i = 1; i < transformVector.length; i++) {
+                transformVector[i] = vector[i-1];
+            }
+            temp = MultipleQuaternion(MultipleQuaternion(quaternion, transformVector), quaternion);
+            float [] result = new float[3];
+            for(int i = 0; i < AXIS; i++) {
+                result[i] = temp[i+1];
+            }
+            return result;
+        }
+
+        public float[] MultipleQuaternion(float[] q1, float[] q2) {
+            float[] result = new float[4];
+            result[0] = q1[0] * q2[0] - q1[1] * q2[1] - q1[2] * q2[2] - q1[3] * q2[3];
+            result[1] = q1[0] * q2[1] + q1[1] * q2[0] + q1[2] * q2[3] - q1[3] * q2[2];
+            result[2] = q1[0] * q2[2] - q1[1] * q2[3] + q1[2] * q2[0] + q1[3] * q2[1];
+            result[3] = q1[0] * q2[3] + q1[1] * q2[2] - q1[2] * q2[1] + q1[3] * q2[0];
+            return result;
+        }
+
+        private float[] cross(float[] a, float[] b) {
+            float[] result = new float[3];
+            result[0] = a[1] * b[2] - a[2] * b[1];
+            result[1] = a[2] * b[0] - a[0] * b[2];
+            result[2] = a[0] * b[1] - a[1] * b[0];
+            return result;
+        }
+
+        public float[] GetVector() {
+            float[] result = Quaternion.clone();
+            return result;
+        }
     }
 
     public class MotionSensor {
-        private int cur;                //  count sampling from start
-        private int pointer;            //  current pointer in avg;
-        private int sample;             //  count sampling for average
-        private double[] position;       //  current position
-
-        private double[] prevV;          //  current velocity
-        private double[] prevAX;         //  prev average acceleration with OX
-        private double[] prevAY;         //  prev average acceleration with OY
-        private double[] prevAZ;         //  prev average acceleration with OZ
-        private double[] prevAvgA;       //  previously avg acceleration
-        private long prevTime;          //  previously time
-        private ArrayList<double[]> AL;
-        private ArrayList<double[]> A;
-        private ArrayList<double[]> G;
-        private ArrayList<double[]> M;
-        private Butterworth butter;
+        private ArrayList<Long> Time;
+        private ArrayList<float[]> AccLinear;
+        private ArrayList<float[]> Acc;
+        private ArrayList<float[]> Gyro;
+        private ArrayList<float[]> Magnetic;
+        private int countSample = 200;
+        private Butterworth buttord;
+        private ButterworthFilter butter;
         private final Semaphore lock;   //  sync lock
-
+        private float[] prevPositions;
+        private float[] prevVelocity;
+        private int currentSample;
+        private AHRS Quaternion;
+        private boolean first;
 
         public MotionSensor(){
-            sample = 10;
-            cur = 0;
-            prevTime = 0;
-            pointer = 0;
-            position = new double[3];
-            prevAX = new double[sample];
-            prevAY = new double[sample];
-            prevAZ = new double[sample];
-            prevV = new double[3];
-            prevAvgA = new double[3];
-            butter = new Butterworth();
             lock = new Semaphore(1, true);
-            AL = new ArrayList<>();
-            A = new ArrayList<>();
-            G = new ArrayList<>();
-            M = new ArrayList<>();
-            Reset();
+            Time = new ArrayList<>();
+            AccLinear = new ArrayList<>();
+            Acc = new ArrayList<>();
+            Gyro = new ArrayList<>();
+            Magnetic = new ArrayList<>();
+            prevPositions = new float[3];
+            prevVelocity = new float[3];
+            currentSample = 0;
+            Quaternion = new AHRS(0.1f);
+            first = true;
         }
 
-        public void Reset() {
-            for (int i = 0; i < 3; i++) {
-                position[i] = 0;
-                prevV[i] = 0;
+        private void periodUpdate() {
+            //  compute accelerometer magnitude
+            float[] accelerometerMagnitudes = new float[countSample];
+            double ax;
+            double ay;
+            double az;
+            double samplePeriod = 0;
+            for (int i = 0; i < countSample; i++) {
+                ax = AccLinear.get(i)[0];
+                ay = AccLinear.get(i)[1];
+                az = AccLinear.get(i)[2];
+
+                accelerometerMagnitudes[i] = (float)(Math.sqrt(ax * ax + ay * ay * az * az));
+                if (i == 0) {
+                    samplePeriod += (double)(Time.get(i+1) - Time.get(i)) / 1000000000.0;
+                } else
+                    samplePeriod += (double)(Time.get(i) - Time.get(i-1)) / 1000000000.0;
             }
+
+            samplePeriod /= countSample;
+            //  High-pass filter
+            double filtCutOff = 0.001;
+            butter = new ButterworthFilter((2*filtCutOff)/(1/samplePeriod), 1 ,ButterworthFilter.Type.HIGH_PASS);
+            float [] accelerometerMFiltered = new float[countSample];
+            butter.applyForward(accelerometerMagnitudes, accelerometerMFiltered);
+
+            for (int i = 0; i < countSample; i++) {
+                accelerometerMagnitudes[i] = (float)Math.abs(accelerometerMFiltered[i]);
+            }
+
+            //  Low-pass filter
+            filtCutOff = 19.6;
+            butter = new ButterworthFilter((2*filtCutOff)/(1/samplePeriod), 1, ButterworthFilter.Type.LOW_PASS);
+            butter.applyForward(accelerometerMagnitudes, accelerometerMFiltered);
+
+            //  stationary states
+            boolean[] stationary = new boolean[countSample];
+            for (int i = 0; i < countSample; i++) {
+                if (accelerometerMFiltered[i] < 0.05) {
+                    stationary[i] = true;
+                    Quaternion.Update(Acc.get(i), Gyro.get(i),Time.get(i));
+                } else {
+                    stationary[i] = false;
+                    Quaternion.Update(Acc.get(i), Gyro.get(i), Time.get(i));
+                }
+
+                float[] matrix = Quaternion.GetRotation();
+                Matrix RM = new Matrix(3,3,matrix);
+                Matrix AccM = new Matrix(1, 3, AccLinear.get(i));
+                RM.Inverse();
+                RM.Multiple(AccM);
+                AccLinear.set(i, RM.GetMatrixAsVector());
+            }
+
+            ArrayList<float[]> velocity = new ArrayList<>();
+
+            //  save velocity by past calculating
+            float[] item = new float[AXIS];
+            for (int i = 0; i < AXIS; i++) {
+                item[i] = prevVelocity[i];
+            }
+            velocity.add(item);
+
+            double dt;
+            for(int i = 1; i < countSample; i++) {
+                item = new float[AXIS];
+                dt = ((double)(Time.get(i) - Time.get(i-1))) / 1000000000.0;
+
+                if (stationary[i]) {
+                    item[0] = 0;
+                    item[1] = 0;
+                    item[2] = 0;
+                } else {
+                    item[0] = (float) (velocity.get(i - 1)[0] + ((AccLinear.get(i)[0] + AccLinear.get(i - 1)[0]) / 2) * dt);
+                    item[1] = (float) (velocity.get(i - 1)[1] + ((AccLinear.get(i)[1] + AccLinear.get(i - 1)[1]) / 2) * dt);
+                    item[2] = (float) (velocity.get(i - 1)[2] + ((AccLinear.get(i)[2] + AccLinear.get(i - 1)[2]) / 2) * dt);
+                }
+
+                velocity.add(item);
+
+            }
+
+            ArrayList<float[]> positions = new ArrayList<>();
+            item = new float[AXIS];
+            for (int i = 0; i < AXIS; i++) {
+                item[i] = prevPositions[i];
+            }
+            positions.add(item);
+
+            for (int i = 1; i < countSample; i++) {
+                item = new float[AXIS];
+                dt = ((double)(Time.get(i) - Time.get(i-1))) / 1000000000.0;
+                item[0] = (float)(positions.get(i - 1)[0] + ((velocity.get(i)[0] + velocity.get(i-1)[0])/2) * dt);
+                item[1] = (float)(positions.get(i - 1)[1] + ((velocity.get(i)[1] + velocity.get(i-1)[1])/2) * dt);
+                item[2] = (float)(positions.get(i - 1)[2] + ((velocity.get(i)[2] + velocity.get(i-1)[2])/2) * dt);
+                positions.add(item);
+            }
+
+            prevPositions = positions.get(countSample - 1).clone();
+            prevVelocity = velocity.get(countSample - 1).clone();
             return;
         }
-        private void Swap() {
-            for (int i = 0; i < sample - 1; i++) {
-                prevAX[i] = prevAX[i+1];
-                prevAY[i] = prevAY[i+1];
-                prevAZ[i] = prevAZ[i+1];
-            }
-        }
 
-        public void Update(float ax, float ay, float az, float[] a, float[] g, float[] m, long time) {
+        public void Update(float[] al, float[] a, float[] g, float[] m, long time) {
             try {
                 lock.acquire();
+                //  copy AL, A, G, M to SampleArray
+                float[] temp = new float[3];
+                for (int i = 0; i < al.length; i++) {
+                    temp[i] = al[i];
+                }
+                AccLinear.add(temp);
 
-                if (cur < 1) {
-//                    prevAX[cur] = ax;
-//                    prevAY[cur] = ay;
-//                    prevAZ[cur] = az;
-                    prevTime = time;
-                    cur++;
-//                    pointer++;
+                temp = new float[3];
+                for (int i = 0; i < a.length; i++) {
+                    temp[i] = a[i];
+                }
+                Acc.add(temp);
+
+                temp = new float[3];
+                for (int i = 0; i < g.length; i++) {
+                    temp[i] = g[i];
+                }
+                Gyro.add(temp);
+
+                temp = new float[3];
+                for (int i = 0; i < m.length; i++) {
+                    temp[i] = m[i];
+                }
+                Magnetic.add(temp);
+
+                Time.add(time);
+                currentSample++;
+                if (currentSample != countSample) {
                     lock.release();
                     return;
                 }
+
+                periodUpdate();
+
+                AccLinear.clear();
+                Acc.clear();
+                Gyro.clear();
+                Magnetic.clear();
+                Time.clear();
+                currentSample = 0;
+                lock.release();
+
+                return;
+
+//                pointer++;
+//                if (pointer == 10000) {
+//                    File file;
+//                    try {
+//                        file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "A");
+//                        FileOutputStream outputStream = new FileOutputStream(file);
+//                        String string;
+//                        for (int i = 0; i < A.size(); i++) {
+//                            string = A.get(i)[0] + "," + A.get(i)[1] + "," + A.get(i)[1] + "\n";
+//                            outputStream.write(string.getBytes());
+//                        }
+//                        outputStream.close();
 //
-                double dt = (time - prevTime) /1000000000.0;  //  NS to S
-                double[] item = new double[4];
-                item[0] = ax;
-                item[1] = ay;
-                item[2] = az;
-                item[3] = dt;
-                AL.add(item);
-
-                for (int i = 0; i<3; i++) {
-                    item[0] = a[i];
-                }
-                A.add(item);
-
-                for (int i = 0; i<3; i++) {
-                    item[0] = g[i];
-                }
-                G.add(item);
-
-                for (int i = 0; i<3; i++) {
-                    item[0] = m[i];
-                }
-                M.add(item);
-                pointer++;
-                if (pointer == 10000) {
-                    File file;
-                    try {
-                        file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "A");
-                        FileOutputStream outputStream = new FileOutputStream(file);
-                        String string;
-                        for (int i = 0; i < A.size(); i++) {
-                            string = A.get(i)[0] + "," + A.get(i)[1] + "," + A.get(i)[1] + "\n";
-                            outputStream.write(string.getBytes());
-                        }
-                        outputStream.close();
-
-                        file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "AL");
-                        outputStream = new FileOutputStream(file);
-                        for (int i = 0; i < AL.size(); i++) {
-                            string = AL.get(i)[0] + "," + AL.get(i)[1] + "," + AL.get(i)[1] + "\n";
-                            outputStream.write(string.getBytes());
-                        }
-                        outputStream.close();
-
-                        file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "G");
-                        outputStream = new FileOutputStream(file);
-                        for (int i = 0; i < G.size(); i++) {
-                            string = G.get(i)[0] + "," + G.get(i)[1] + "," + G.get(i)[1] + "\n";
-                            outputStream.write(string.getBytes());
-                        }
-                        outputStream.close();
-
-                        file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "M");
-                        outputStream = new FileOutputStream(file);
-                        for (int i = 0; i < M.size(); i++) {
-                            string = M.get(i)[0] + "," + M.get(i)[1] + "," + M.get(i)[1] + "\n";
-                            outputStream.write(string.getBytes());
-                        }
-                        outputStream.close();
-                        position[0] = 10000;
-                    }catch (Exception err) {
-                        System.out.print("OK");
-                    }
-                }
+//                        file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "AL");
+//                        outputStream = new FileOutputStream(file);
+//                        for (int i = 0; i < AL.size(); i++) {
+//                            string = AL.get(i)[0] + "," + AL.get(i)[1] + "," + AL.get(i)[1] + "\n";
+//                            outputStream.write(string.getBytes());
+//                        }
+//                        outputStream.close();
+//
+//                        file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "G");
+//                        outputStream = new FileOutputStream(file);
+//                        for (int i = 0; i < G.size(); i++) {
+//                            string = G.get(i)[0] + "," + G.get(i)[1] + "," + G.get(i)[1] + "\n";
+//                            outputStream.write(string.getBytes());
+//                        }
+//                        outputStream.close();
+//
+//                        file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "M");
+//                        outputStream = new FileOutputStream(file);
+//                        for (int i = 0; i < M.size(); i++) {
+//                            string = M.get(i)[0] + "," + M.get(i)[1] + "," + M.get(i)[1] + "\n";
+//                            outputStream.write(string.getBytes());
+//                        }
+//                        outputStream.close();
+//                        position[0] = 10000;
+//                    }catch (Exception err) {
+//                        System.out.print("OK");
+//                    }
+//                }
 //                System.out.println("|A|[" + ax + "," + ay + "," + az + ","+ Double.toString(dt) + "]");
 //                if (dt > 1.0) {
 //                    prevTime = time;
@@ -775,8 +1203,17 @@ public class imuController extends FrameLayout implements SensorEventListener {
 //                }
 //                prevV = velocity;
 //                prevTime = time;
-                lock.release();
+//                lock.release();
             }catch (InterruptedException err) {}
+        }
+
+        public float[] GetAccelerationByWorldCoordinateSystem(float[] RM, float[] acceleration) {
+            float [] result = new float[AXIS];
+            result[0] = RM[0] * acceleration[0] + RM[1] * acceleration[1] + RM[2] * acceleration[2];
+            result[1] = RM[3] * acceleration[0] + RM[4] * acceleration[1] + RM[5] * acceleration[2];
+            result[2] = RM[6] * acceleration[0] + RM[7] * acceleration[1] + RM[8] * acceleration[2];
+
+            return result;
         }
 
         public float[] GetPosition() {
@@ -784,7 +1221,7 @@ public class imuController extends FrameLayout implements SensorEventListener {
             try {
                 lock.acquire();
                 for(int i = 0; i < 3; i++)
-                    res[i] = (float)position[i];
+                    res[i] = prevPositions[i];
                 lock.release();
 
 //                Reset();
