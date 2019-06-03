@@ -5,13 +5,13 @@ public class Matrix {
     public int Rows;
     public float[][] data;
 
-    public Matrix(int col, int row) {
+    public Matrix(int row, int col) {
         Cols = col;
         Rows = row;
         data = new float[row][col];
     }
 
-    public Matrix(int col, int row, float[] dataVector) {
+    public Matrix(int row, int col, float[] dataVector) {
         Cols = col;
         Rows = row;
         data = new float[Rows][Cols];
@@ -22,48 +22,127 @@ public class Matrix {
         }
     }
 
-    public void Multiple(Matrix b) {
-        float[][] a = this.data.clone();
+    public Matrix clone() {
+        Matrix result = new Matrix(this.Rows, this.Cols);
+        for (int i = 0; i < result.Rows; i++) {
+            for(int j = 0; j < result.Cols; j++) {
+                result.data[i][j] = this.data[i][j];
+            }
+        }
+        return result;
+    }
 
-        if (this.Cols != b.Rows) {
-            return;
+
+    public static Matrix Transpose(Matrix a) {
+        Matrix c = new Matrix(a.Cols, a.Rows);
+        for (int i = 0; i < a.Rows; i++) {
+            for (int j = 0; j < a.Cols; j++) {
+                c.data[j][i] = a.data[i][j];
+            }
         }
 
-        int cols = this.Cols;
-        this.Cols = b.Cols;
-        this.data = new float[this.Rows][this.Cols];
+        return c;
+    }
 
-        for (int i = 0; i < this.Rows; i++) {
-            for (int j = 0;j < this.Cols; j++) {
-                this.data[i][j] = 0;
-                for (int r = 0; r < cols; r++) {
-                    this.data[i][j] += a[i][r] * b.data[r][j];
+    public static Matrix Multiply(Matrix a, Matrix b) {
+        if (a.Cols != b.Rows) {
+            throw new Error("A.Cols != B.Rows");
+        }
+
+        Matrix c = new Matrix(a.Rows, b.Cols);
+
+        for (int i = 0; i < c.Rows; i++) {
+            for (int j = 0;j < c.Cols; j++) {
+                c.data[i][j] = 0;
+                for (int r = 0; r < a.Cols; r++) {
+                    c.data[i][j] += a.data[i][r] * b.data[r][j];
                 }
             }
         }
 
-        return;
+        return c;
     }
 
-    public void Inverse() {
-        float[][] inverse = new float[Rows][Cols];
+    public static Matrix Add(Matrix a, Matrix b) {
+        if (a.Rows != b.Rows || a.Cols != b.Cols) {
+            throw new Error("A.Rows != B.Rows");
+        }
 
-        // minors and cofactors
-        for (int i = 0; i < Rows; i++)
-            for (int j = 0; j < Cols; j++)
-                inverse[i][j] = (float)(Math.pow(-1, i + j) * determinant(minor(this.data, i, j)));
-
-        // adjugate and determinant
-        double det = 1.0 / determinant(this.data);
-        for (int i = 0; i < inverse.length; i++) {
-            for (int j = 0; j <= i; j++) {
-                float temp = inverse[i][j];
-                inverse[i][j] = (float)(inverse[j][i] * det);
-                inverse[j][i] = (float)(temp * det);
+        Matrix c = new Matrix(a.Rows, a.Cols);
+        for (int i = 0; i < a.Rows; i++) {
+            for (int j = 0; j < a.Cols; j++) {
+                c.data[i][j] = a.data[i][j] + b.data[i][j];
             }
         }
 
-        this.data = inverse;
+        return c;
+    }
+
+    public static Matrix Sub(Matrix a, Matrix b) {
+        if (a.Rows != b.Rows || a.Cols != b.Cols) {
+            throw new Error("A.Rows != B.Rows");
+        }
+
+        Matrix c = new Matrix(a.Rows, a.Cols);
+
+        for (int i = 0; i < a.Rows; i++) {
+            for(int j = 0; j < a.Cols; j++) {
+                c.data[i][j] = a.data[i][j] - b.data[i][j];
+            }
+        }
+
+        return c;
+    }
+
+    public static Matrix Invert(Matrix a) {
+        Matrix c = new Matrix(a.Rows, a.Cols);
+
+        for (int i = 0; i < a.Rows; i++)
+            for (int j = 0; j < a.Cols; j++)
+                c.data[i][j] = (float)(Math.pow(-1, i + j) * determinant(minor(c.data, i, j)));
+
+        // adjugate and determinant
+        double det = determinant(c.data);
+        if (det == 0.0) {
+            return a;
+        }
+        det = 1.0 / det;
+        for (int i = 0; i < c.Rows; i++) {
+            for (int j = 0; j <= i; j++) {
+                float temp = c.data[i][j];
+                c.data[i][j] = (float)(c.data[j][i] * det);
+                c.data[j][i] = (float)(temp * det);
+            }
+        }
+
+        return c;
+    }
+
+    public static Matrix SubtractFromIdentity(Matrix a) {
+        Matrix c = new Matrix(a.Rows, a.Cols);
+
+        for (int i = 0; i < a.Rows; i++) {
+            for (int j = 0; j < i; j++) {
+                c.data[i][j] = -a.data[i][j];
+            }
+            c.data[i][i] = 1.0f - a.data[i][i];
+            for (int j = i+1; j < a.Cols; j++) {
+                c.data[i][j] = -a.data[i][j];
+            }
+        }
+
+        return c;
+    }
+
+    public static boolean SetIdentity(Matrix a) {
+        for (int i = 0; i < a.Rows; i++) {
+            for (int j = 0; j < a.Cols; j++) {
+                a.data[i][j] = 0.0f;
+            }
+            a.data[i][i] = 1.0f;
+        }
+
+        return true;
     }
 
     public float[] GetMatrixAsVector() {
@@ -77,7 +156,7 @@ public class Matrix {
         return res;
     }
 
-    private double determinant(float[][] matrix) {
+    private static double determinant(float[][] matrix) {
         if (matrix.length != matrix[0].length)
             throw new IllegalStateException("invalid dimensions");
 
@@ -90,7 +169,7 @@ public class Matrix {
         return det;
     }
 
-    private float[][] minor(float[][] matrix, int row, int column) {
+    private static float[][] minor(float[][] matrix, int row, int column) {
         float[][] minor = new float[matrix.length - 1][matrix.length - 1];
 
         for (int i = 0; i < matrix.length; i++)
