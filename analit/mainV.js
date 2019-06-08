@@ -126,6 +126,11 @@ function initPlot(data) {
     let temp2;
     let t;
     let prevT = undefined;
+    let prevA = 0;
+    let K = 0.15;
+    let Kalm;
+    let prevV = 0;
+    let prevP = 0;
 
     prevT = Number(lines[0].split(',')[0]);
     for (let i = 1; i < lines.length; i++) {
@@ -155,11 +160,32 @@ function initPlot(data) {
         // positionZ.x.push(time);
         // positionZ.y.push(Number(temp[10]));
         avgX.x.push(time);
-        avgX.y.push(Number(temp[20]));
+        
+        // Kalm = Number(temp[1]);
+        Kalm = K * Number(temp[1]) + (1-K) * prevA;
+        avgX.y.push(Kalm);
+
+        if (avgX.y.length >= 2) {
+            velocityX1.x.push(time);
+            if (Math.sqrt(Kalm * Kalm) > 0.05) {
+                velocityX1.y.push(prevV + (Kalm + prevA) / 2 * dt);
+            }else {
+                velocityX1.y.push(0);
+            }
+            prevV = velocityX1.y[velocityX1.y.length-1];
+        }
+
+        if (velocityX1.x.length >= 2){
+            positionX1.x.push(time);
+            positionX1.y.push(prevP + (prevV + velocityX1.y[velocityX1.y.length-2])/2*dt);
+            prevP = positionX1.y[positionX1.y.length - 1];
+        }
+        prevA = Kalm;
+        // avgX.y.push(Number(temp[20]));
         prevT = Number(temp[0]);
     }
 
-    Plotly.newPlot('plot', [accelX, accelY, accelZ, velocityX, positionX, positionY, positionZ, avgX], layout);
+    Plotly.newPlot('plot', [accelX, accelY, accelZ, velocityX, positionX, positionX1, velocityX1, avgX], layout);
 }
 
 function mean(values) {
