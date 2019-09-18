@@ -21,6 +21,7 @@ import java.util.Arrays;
 import java.util.concurrent.Semaphore;
 
 import edu.mines.jtk.dsp.ButterworthFilter;
+import edu.mines.jtk.sgl.Axis;
 import uk.me.berndporr.iirj.*;
 import edu.mines.jtk.*;
 
@@ -92,6 +93,11 @@ public class imuController extends FrameLayout implements SensorEventListener {
         return;
     }
 
+    public Matrix GetTranslate() {
+        Matrix res = new Matrix(3,1, getTranslationMatrix());
+        return res;
+    }
+
     public Mat GetSensorData() {
         Mat result = new Mat(3,4, CV_32F);
 
@@ -140,6 +146,10 @@ public class imuController extends FrameLayout implements SensorEventListener {
         manager.registerListener(this, mAccelerometer, SensorManager.SENSOR_DELAY_FASTEST);
         manager.registerListener(this, mMagnetrometer, SensorManager.SENSOR_DELAY_FASTEST);
         manager.registerListener(this, mLinearAccelerometer, SensorManager.SENSOR_DELAY_FASTEST);
+    }
+
+    public boolean Ready() {
+        return Position.ready;
     }
 
     public void Stop() {
@@ -215,9 +225,9 @@ public class imuController extends FrameLayout implements SensorEventListener {
                     lockGyr.acquire();
                     lockMag.acquire();
                     float[] al = new float[AXIS];
-                    al[0] = SensorDataHandler.GetAccuracy(-event.values[1], 8);
-                    al[1] = SensorDataHandler.GetAccuracy(event.values[0], 8);
-                    al[2] = SensorDataHandler.GetAccuracy(event.values[2], 8);
+                    al[0] = SensorDataHandler.GetAccuracy(-event.values[1], 8) + 0.000129f;
+                    al[1] = SensorDataHandler.GetAccuracy(event.values[0], 8) + 0.000111f;
+                    al[2] = SensorDataHandler.GetAccuracy(event.values[2], 8) + 0.01395f;
 
                     Position.Update(al, AccelData, GyroData, MagnetData, event.timestamp);
                     Quaternion.Update(AccelData, GyroData, event.timestamp);
@@ -269,6 +279,14 @@ public class imuController extends FrameLayout implements SensorEventListener {
                 sum += m[i];
             }
             return sum / m.length;
+        }
+
+        static float Mean(ArrayList<float[]> m, int index) {
+            float sum = 0;
+            for (int i = 0; i < m.size(); i++) {
+                sum += m.get(i)[index];
+            }
+            return sum / m.size();
         }
     }
 
@@ -870,25 +888,79 @@ public class imuController extends FrameLayout implements SensorEventListener {
     }
 
     public class MotionSensor {
-        private ArrayList<Long> Time;
-        private ArrayList<float[]> AccLinear;
+        private long Time;
+        private long prevT;
+        private float[] AccLinear;
+        public boolean ready = false;
+
+        //  noise parametrs
+        private int countDisp = 1000;
+        private int currentDisp;
+        private float[] minInStay;
+        private float[] maxInStay;
+
+        //  Simple kalman
+        private float K = 0.5f;
+        private float[] prevA;
+        private float[] prevPrevA;
+
+        //  Kalman
+        private ArrayList<float[]> CovAcc;
+        private Kalman Kfilter;
+
+        //  Sync
+        private final Semaphore lock;   //  sync lock
+
+        //  Output
+        private float[] prevPositions;
+        private float[] prevVelocity;
+
+        //  Mean
+        private int countSample = 30;
+        private ArrayList<float[]> meanAcceleration;
+        private float[] prevMeanAcceleration;
+        private float[] prevMeanVelocity;
+        private float[] prevMeanPosition;
+        private int currentSample = 0;
         private ArrayList<float[]> Acc;
         private ArrayList<float[]> Gyro;
         private ArrayList<float[]> Magnetic;
-        private int countSample = 200;
+
+        //  Old
         private Butterworth buttord;
         private ButterworthFilter butter;
-        private final Semaphore lock;   //  sync lock
-        private float[] prevPositions;
-        private float[] prevVelocity;
-        private int currentSample;
         private AHRS Quaternion;
         private boolean first;
+        private int pointer;
+        private float[] prevAvgA;
+        private float[] meanPos;
+        private float[] meanVel;
 
         public MotionSensor(){
-            lock = new Semaphore(1, true);
-            Time = new ArrayList<>();
-            AccLinear = new ArrayList<>();
+            lock = new Semaphore(1, false);
+
+            AccLinear = new float[3];
+            prevPositions = new float[3];
+            prevVelocity = new float[3];
+            currentSample = 0;
+
+            Kfilter = new Kalman(6, 3, 6);
+            CovAcc = new ArrayList<>();
+
+            meanAcceleration = new ArrayList<>();
+            prevMeanAcceleration = new float[AXIS];
+            prevMeanVelocity = new float[AXIS];
+            prevMeanPosition = new float[AXIS];
+
+            prevA = new float[3];
+            prevPrevA = new float[3];
+            minInStay = new float[3];
+            maxInStay = new float[3];
+            for (int i = 0; i < AXIS; i++) {
+                minInStay[i] = (float)MaxAccLin;
+                maxInStay[i] = (float)-MaxAccLin;
+            }
+
             Acc = new ArrayList<>();
             Gyro = new ArrayList<>();
             Magnetic = new ArrayList<>();
@@ -896,110 +968,397 @@ public class imuController extends FrameLayout implements SensorEventListener {
             prevVelocity = new float[3];
             currentSample = 0;
             Quaternion = new AHRS(0.1f);
-            first = true;
+
+
+            prevAvgA = new float[3];
+            meanPos = new float[3];
+            meanVel = new float[3];
+            prevA = new float[3];
+
         }
 
+        //  Butterworth release
         private void periodUpdate() {
             //  compute accelerometer magnitude
-            float[] accelerometerMagnitudes = new float[countSample];
-            double ax;
-            double ay;
-            double az;
-            double samplePeriod = 0;
-            for (int i = 0; i < countSample; i++) {
-                ax = AccLinear.get(i)[0];
-                ay = AccLinear.get(i)[1];
-                az = AccLinear.get(i)[2];
-
-                accelerometerMagnitudes[i] = (float)(Math.sqrt(ax * ax + ay * ay * az * az));
-                if (i == 0) {
-                    samplePeriod += (double)(Time.get(i+1) - Time.get(i)) / 1000000000.0;
-                } else
-                    samplePeriod += (double)(Time.get(i) - Time.get(i-1)) / 1000000000.0;
-            }
-
-            samplePeriod /= countSample;
-            //  High-pass filter
-            double filtCutOff = 0.001;
-            butter = new ButterworthFilter((2*filtCutOff)/(1/samplePeriod), 1 ,ButterworthFilter.Type.HIGH_PASS);
-            float [] accelerometerMFiltered = new float[countSample];
-            butter.applyForward(accelerometerMagnitudes, accelerometerMFiltered);
-
-            for (int i = 0; i < countSample; i++) {
-                accelerometerMagnitudes[i] = (float)Math.abs(accelerometerMFiltered[i]);
-            }
-
-            //  Low-pass filter
-            filtCutOff = 19.6;
-            butter = new ButterworthFilter((2*filtCutOff)/(1/samplePeriod), 1, ButterworthFilter.Type.LOW_PASS);
-            butter.applyForward(accelerometerMagnitudes, accelerometerMFiltered);
-
-            //  stationary states
-            boolean[] stationary = new boolean[countSample];
-            for (int i = 0; i < countSample; i++) {
-                if (accelerometerMFiltered[i] < 0.05) {
-                    stationary[i] = true;
-                    Quaternion.Update(Acc.get(i), Gyro.get(i),Time.get(i));
-                } else {
-                    stationary[i] = false;
-                    Quaternion.Update(Acc.get(i), Gyro.get(i), Time.get(i));
-                }
-
-                float[] matrix = Quaternion.GetRotation();
-                Matrix RM = new Matrix(3,3,matrix);
-                Matrix AccM = new Matrix(1, 3, AccLinear.get(i));
-                RM.Inverse();
-                RM.Multiple(AccM);
-                AccLinear.set(i, RM.GetMatrixAsVector());
-            }
-
-            ArrayList<float[]> velocity = new ArrayList<>();
-
-            //  save velocity by past calculating
-            float[] item = new float[AXIS];
-            for (int i = 0; i < AXIS; i++) {
-                item[i] = prevVelocity[i];
-            }
-            velocity.add(item);
-
-            double dt;
-            for(int i = 1; i < countSample; i++) {
-                item = new float[AXIS];
-                dt = ((double)(Time.get(i) - Time.get(i-1))) / 1000000000.0;
-
-                if (stationary[i]) {
-                    item[0] = 0;
-                    item[1] = 0;
-                    item[2] = 0;
-                } else {
-                    item[0] = (float) (velocity.get(i - 1)[0] + ((AccLinear.get(i)[0] + AccLinear.get(i - 1)[0]) / 2) * dt);
-                    item[1] = (float) (velocity.get(i - 1)[1] + ((AccLinear.get(i)[1] + AccLinear.get(i - 1)[1]) / 2) * dt);
-                    item[2] = (float) (velocity.get(i - 1)[2] + ((AccLinear.get(i)[2] + AccLinear.get(i - 1)[2]) / 2) * dt);
-                }
-
-                velocity.add(item);
-
-            }
-
-            ArrayList<float[]> positions = new ArrayList<>();
-            item = new float[AXIS];
-            for (int i = 0; i < AXIS; i++) {
-                item[i] = prevPositions[i];
-            }
-            positions.add(item);
-
-            for (int i = 1; i < countSample; i++) {
-                item = new float[AXIS];
-                dt = ((double)(Time.get(i) - Time.get(i-1))) / 1000000000.0;
-                item[0] = (float)(positions.get(i - 1)[0] + ((velocity.get(i)[0] + velocity.get(i-1)[0])/2) * dt);
-                item[1] = (float)(positions.get(i - 1)[1] + ((velocity.get(i)[1] + velocity.get(i-1)[1])/2) * dt);
-                item[2] = (float)(positions.get(i - 1)[2] + ((velocity.get(i)[2] + velocity.get(i-1)[2])/2) * dt);
-                positions.add(item);
-            }
-
-            prevPositions = positions.get(countSample - 1).clone();
-            prevVelocity = velocity.get(countSample - 1).clone();
+//            float[] accelerometerMagnitudes = new float[countSample];
+//            double ax;
+//            double ay;
+//            double az;
+//            double samplePeriod = 0;
+//            for (int i = 0; i < countSample; i++) {
+//                ax = AccLinear.get(i)[0];
+//                ay = AccLinear.get(i)[1];
+//                az = AccLinear.get(i)[2];
+//
+//                accelerometerMagnitudes[i] = (float)(Math.sqrt(ax * ax + ay * ay * az * az));
+//                if (i == 0) {
+//                    samplePeriod += (double)(Time.get(i+1) - Time.get(i)) / 1000000000.0;
+//                } else
+//                    samplePeriod += (double)(Time.get(i) - Time.get(i-1)) / 1000000000.0;
+//            }
+//
+//            samplePeriod /= countSample;
+//            //  High-pass filter
+//            double filtCutOff = 0.001;
+//            butter = new ButterworthFilter((2*filtCutOff)/(1/samplePeriod), 1 ,ButterworthFilter.Type.HIGH_PASS);
+//            float [] accelerometerMFiltered = new float[countSample];
+//            butter.applyForward(accelerometerMagnitudes, accelerometerMFiltered);
+//
+//            for (int i = 0; i < countSample; i++) {
+//                accelerometerMagnitudes[i] = (float)Math.abs(accelerometerMFiltered[i]);
+//            }
+//
+//            //  Low-pass filter
+//            filtCutOff = 19.6;
+//            butter = new ButterworthFilter((2*filtCutOff)/(1/samplePeriod), 1, ButterworthFilter.Type.LOW_PASS);
+//            butter.applyForward(accelerometerMagnitudes, accelerometerMFiltered);
+//
+//            //  stationary states
+//            boolean[] stationary = new boolean[countSample];
+//            for (int i = 0; i < countSample; i++) {
+//                if (accelerometerMFiltered[i] < 0.05) {
+//                    stationary[i] = true;
+//                    Quaternion.Update(Acc.get(i), Gyro.get(i),Time.get(i));
+//                } else {
+//                    stationary[i] = false;
+//                    Quaternion.Update(Acc.get(i), Gyro.get(i), Time.get(i));
+//                }
+//
+//                float[] matrix = Quaternion.GetRotation();
+//                Matrix RM = new Matrix(3,3,matrix);
+//                Matrix AccM = new Matrix(1, 3, AccLinear.get(i));
+//                RM = Matrix.Invert(RM);
+//                RM = Matrix.Multiply(RM, AccM);
+//                AccLinear.set(i, RM.GetMatrixAsVector());
+//            }
+//
+//            ArrayList<float[]> velocity = new ArrayList<>();
+//
+//            //  save velocity by past calculating
+//            float[] item = new float[AXIS];
+//            for (int i = 0; i < AXIS; i++) {
+//                item[i] = prevVelocity[i];
+//            }
+//            velocity.add(item);
+//
+//            double dt;
+//            for(int i = 1; i < countSample; i++) {
+//                item = new float[AXIS];
+//                dt = ((double)(Time.get(i) - Time.get(i-1))) / 1000000000.0;
+//
+//                if (stationary[i]) {
+//                    item[0] = 0;
+//                    item[1] = 0;
+//                    item[2] = 0;
+//                } else {
+//                    item[0] = (float) (velocity.get(i - 1)[0] + ((AccLinear.get(i)[0] + AccLinear.get(i - 1)[0]) / 2) * dt);
+//                    item[1] = (float) (velocity.get(i - 1)[1] + ((AccLinear.get(i)[1] + AccLinear.get(i - 1)[1]) / 2) * dt);
+//                    item[2] = (float) (velocity.get(i - 1)[2] + ((AccLinear.get(i)[2] + AccLinear.get(i - 1)[2]) / 2) * dt);
+//                }
+//
+//                velocity.add(item);
+//
+//            }
+//
+//            ArrayList<float[]> positions = new ArrayList<>();
+//            item = new float[AXIS];
+//            for (int i = 0; i < AXIS; i++) {
+//                item[i] = prevPositions[i];
+//            }
+//            positions.add(item);
+//
+//            for (int i = 1; i < countSample; i++) {
+//                item = new float[AXIS];
+//                dt = ((double)(Time.get(i) - Time.get(i-1))) / 1000000000.0;
+//                item[0] = (float)(positions.get(i - 1)[0] + ((velocity.get(i)[0] + velocity.get(i-1)[0])/2) * dt);
+//                item[1] = (float)(positions.get(i - 1)[1] + ((velocity.get(i)[1] + velocity.get(i-1)[1])/2) * dt);
+//                item[2] = (float)(positions.get(i - 1)[2] + ((velocity.get(i)[2] + velocity.get(i-1)[2])/2) * dt);
+//                positions.add(item);
+//            }
+//
+//            prevPositions = positions.get(countSample - 1).clone();
+//            prevVelocity = velocity.get(countSample - 1).clone();
             return;
+        }
+
+        //  Kalman release
+        private void periodUpdate2() {
+
+            try {
+                float dt = (float) ((Time - prevT) / 1000000000.0);
+                if (dt > 1.0f) {
+                    prevT = Time;
+                    return;
+                }
+                Quaternion.Update(Acc.get(0), Gyro.get(0), Time);
+                Matrix R = new Matrix(3,3, Quaternion.GetRotation());
+                Matrix A = new Matrix(3, 1, AccLinear);
+                Matrix AR = Matrix.Multiply(R,A);
+                for (int i = 0; i < AXIS; i++) {
+                    AccLinear[i] = AR.data[i][0];
+                }
+
+                //  accumulate error of acceleration
+                if (currentDisp < countDisp) {
+
+                    //  find min and max noise in stay state
+                    for (int i = 0; i < AXIS; i++) {
+                        if (AccLinear[i] > maxInStay[i]) {
+                            maxInStay[i] = AccLinear[i];
+                        }
+                        if (AccLinear[i] < minInStay[i]) {
+                            minInStay[i] = AccLinear[i];
+                        }
+                    }
+
+
+                    CovAcc.add(AccLinear);
+                    prevT = Time;
+                    currentDisp++;
+                    prevPrevA = prevA.clone();
+                    prevA = AccLinear.clone();
+                    return;
+                }
+
+                //  Mean initing
+                if (currentSample < countSample) {
+                    meanAcceleration.add(AccLinear.clone());
+                    currentSample++;
+                    prevPrevA = prevA.clone();
+                    prevA.clone();
+                    return;
+                }
+
+                meanAcceleration.add(AccLinear.clone());
+                float[] currentMeanAcceleration = new float[3];
+                for (int i = 0; i < AXIS; i++) {
+                    currentMeanAcceleration[i] = SensorDataHandler.Mean(meanAcceleration, i);
+                }
+                meanAcceleration.remove(0);
+
+                if (currentSample == countSample) {
+                    prevMeanAcceleration = currentMeanAcceleration.clone();
+                    currentSample++;
+                    prevPrevA = prevA.clone();
+                    prevA = AccLinear.clone();
+                    return;
+                }
+
+                float[] currentMeanVelocity = new float[3];
+                for (int i = 0; i < AXIS; i++) {
+                    if (AccLinear[i] < maxInStay[i] && AccLinear[i] > minInStay[i]) {
+                        currentMeanVelocity[i] = 0;
+                    } else {
+                        currentMeanVelocity[i] = prevMeanVelocity[i] + (prevMeanAcceleration[i] + currentMeanAcceleration[i]) / 2 * dt;
+                    }
+                }
+
+                if (currentSample < countSample + 1) {
+                    prevMeanVelocity = currentMeanVelocity.clone();
+                    prevMeanAcceleration = currentMeanAcceleration.clone();
+                    currentSample++;
+                    prevPrevA = prevA.clone();
+                    prevA = AccLinear.clone();
+                    return;
+                }
+
+                float[] currentMeanPosition = new float[3];
+                for (int i = 0; i < AXIS; i++) {
+                    currentMeanPosition[i] = prevMeanPosition[i] + (prevMeanVelocity[i] + currentMeanVelocity[i]) / 2 * dt;
+                }
+                prevMeanAcceleration = currentMeanAcceleration.clone();
+                prevMeanVelocity = currentMeanVelocity.clone();
+
+                //  deviation
+                CovAcc.add(AccLinear);
+                float[] avg = new float[3];
+                for (int i = 0; i < CovAcc.size(); i++) {
+                    for (int j = 0; j < AXIS; j++) {
+                        avg[j] += CovAcc.get(i)[j];
+                    }
+                }
+
+                for (int i = 0; i < AXIS; i++) {
+                    avg[i] /= CovAcc.size();
+                }
+
+
+                float[] dev = new float[3];
+                for (int i = 0; i < AXIS; i++) {
+                    float s = 0;
+                    for (int j = 0; j < CovAcc.size(); j++) {
+                        s += (float) Math.pow((CovAcc.get(j)[i] - avg[i]), 2);
+                    }
+
+                    dev[i] = (float) Math.sqrt(s / CovAcc.size());
+                }
+
+                CovAcc.remove(0);
+
+                //  first predict
+                Kfilter.rebuildF(dt);
+                Kfilter.rebuildB(dt);
+                float[] u = new float[AccLinear.length];
+                for (int i = 0; i < u.length; i++) {
+                    if ((prevPrevA[i] - prevA[i] > 0) && (prevA[i] - AccLinear[i]) > 0 )
+                        u[i] = AccLinear[i] + prevA[i];
+                    else
+                        u[i] = AccLinear[i] + prevA[i];
+                }
+
+                Kfilter.rebuildU(u);
+                Kfilter.rebuildQ(dev, dt);
+
+                Kfilter.Predict();
+
+                Kfilter.Xk = Kfilter.Xk_k1.clone();
+                //  Predict Pos;
+                Matrix pPos = Kfilter.Xk_k1.clone();
+
+                //  Update with Mean method
+                Matrix measure = pPos.clone();
+                float vector = (float)Math.sqrt(Math.pow(AccLinear[0], 2) + Math.pow(AccLinear[1], 2) + Math.pow(AccLinear[2], 2));
+                for (int i = 0; i < AXIS; i++) {
+                    if (vector < maxInStay[i] && vector > minInStay[i]) {
+                        measure.data[i][0] = prevPositions[i];
+                        measure.data[i+AXIS][0] = 0.00f;
+                    } else {
+                        measure.data[i][0] = pPos.data[i][0];
+                        measure.data[i+AXIS][0] = pPos.data[i+AXIS][0];
+                    }
+                }
+
+                float posDev = (float) Math.sqrt(dev[0] * dev[0] + dev[1] * dev[1] + dev[2] * dev[2]);
+                Kfilter.rebuildZ(measure);
+                Kfilter.rebuildR(posDev);
+
+                Kfilter.Update();
+
+                prevPositions[0] = Kfilter.Xk.data[0][0];
+                prevPositions[1] = Kfilter.Xk.data[1][0];
+                prevPositions[2] = Kfilter.Xk.data[2][0];
+
+
+                prevMeanPosition = prevPositions.clone();
+                prevT = Time;
+                prevPrevA = prevA.clone();
+                prevA = AccLinear.clone();
+                ready = true;
+                // v1.0
+//                float dt = (float) ((Time.get(0) - prevT) / 1000000000.0);
+//                if (dt > 1.0f) {
+//                    prevT = Time.get(0);
+//                    return;
+//                }
+//                Quaternion.Update(Acc.get(0), Gyro.get(0), Time.get(0));
+//
+//                //              Get A_North, A_East, A_Altitude
+////                float[] matrix = Quaternion.GetRotation();
+////                Matrix RM = new Matrix(3, 3, matrix);
+//                Matrix AccM = new Matrix(3, 1, AccLinear.get(0));
+////                RM = Matrix.Invert(RM);
+////                AccM = Matrix.Multiply(RM, AccM);
+////                AccLinear.set(0, AccM.GetMatrixAsVector());
+//                float [] accK = new float[3];
+//                for (int i = 0; i < AXIS; i++) {
+//                    accK[i] = K * AccLinear.get(0)[i] + (1 - K) * prevA[i];
+//                }
+//                prevA = accK.clone();
+//
+//                if (currentDisp < countDisp) {
+//                    float[] item = new float[3];
+////                    for (int i = 0; i < item.length; i++) {
+////                        item[i] = AccLinear.get(0)[i];
+////                    }
+//
+//                    CovAcc.add(accK);
+//                    prevT = Time.get(0);
+//                    currentDisp++;
+//                    if (currentDisp == countDisp) {
+//                        for (int i = 0; i < CovAcc.size(); i++) {
+//                            for (int j = 0; j < AXIS; j++) {
+//                                prevAvgA[j] += CovAcc.get(i)[j];
+//                            }
+//                        }
+//
+//                        for (int i = 0; i < AXIS; i++) {
+//                            prevAvgA[i] /= CovAcc.size();
+//                        }
+//
+//                    }
+//                    return;
+//                }
+//
+//                //  deviation
+//                CovAcc.add(accK);
+//                float[] avg = new float[3];
+//                for (int i = 0; i < CovAcc.size(); i++) {
+//                    for (int j = 0; j < AXIS; j++) {
+//                        avg[j] += CovAcc.get(i)[j];
+//                    }
+//                }
+//
+//                for (int i = 0; i < AXIS; i++) {
+//                    avg[i] /= CovAcc.size();
+//                }
+//
+//
+//                float[] dev = new float[3];
+//                for (int i = 0; i < AXIS; i++) {
+//                    float s = 0;
+//                    for (int j = 0; j < CovAcc.size(); j++) {
+//                        s += (float) Math.pow((CovAcc.get(j)[i] - avg[i]), 2);
+//                    }
+//
+//                    dev[i] = -(float) Math.sqrt(s / CovAcc.size());
+//                }
+//
+//                CovAcc.remove(0);
+//                //            SS.add(dev);
+//
+//                //  first predict
+//                Kfilter.rebuildF(dt);
+//                Kfilter.rebuildB(dt);
+//                Kfilter.rebuildU(accK);
+//                Kfilter.rebuildQ(dev, dt);
+//
+//                Kfilter.Predict();
+//
+//                Kfilter.Xk = Kfilter.Xk_k1.clone();
+//                //  Predict Pos;
+//                Matrix pPos = Kfilter.Xk_k1.clone();
+//
+//                //  Update
+//                float posDev = (float) Math.sqrt(dev[0] * dev[0] + dev[1] * dev[1] + dev[2] * dev[2]);
+//                Matrix measure = pPos.clone();
+//                for (int i = 0; i < AXIS; i++) {
+//                    measure.data[i+AXIS][0] = (float)(meanVel[i] + (prevAvgA[i] + avg[i])/2.0 * dt);
+//                    measure.data[i][0] = (float)(meanPos[i] + (meanVel[i] + measure.data[i+AXIS][0])/ 2.0 * dt);
+//                }
+//
+//                if (Math.sqrt(Math.pow(AccLinear.get(0)[0], 2) + Math.pow(AccLinear.get(0)[1], 2) + Math.pow(AccLinear.get(0)[2], 2)) < 0.005) {
+//                    measure.data[3][0] = 0.0f;
+//                    measure.data[4][0] = 0.0f;
+//                    measure.data[5][0] = 0.0f;
+//                }
+//
+//
+//                Kfilter.rebuildZ(measure);
+//                Kfilter.rebuildR(posDev);
+//
+//                Kfilter.Update();
+//                prevPositions[0] = Kfilter.Xk.data[0][0];
+//                prevPositions[1] = Kfilter.Xk.data[1][0];
+//                prevPositions[2] = Kfilter.Xk.data[2][0];
+//                for (int i = 0; i < AXIS; i++) {
+//                    meanVel[i] = measure.data[i+AXIS][0];
+//                    meanPos[i] = prevPositions[i];
+//                }
+//                prevAvgA = avg.clone();
+//                prevT = Time.get(0);
+            } catch (Exception err) {
+                System.out.print(err.getMessage());
+            }
         }
 
         public void Update(float[] al, float[] a, float[] g, float[] m, long time) {
@@ -1007,10 +1366,7 @@ public class imuController extends FrameLayout implements SensorEventListener {
                 lock.acquire();
                 //  copy AL, A, G, M to SampleArray
                 float[] temp = new float[3];
-                for (int i = 0; i < al.length; i++) {
-                    temp[i] = al[i];
-                }
-                AccLinear.add(temp);
+                AccLinear = al.clone();
 
                 temp = new float[3];
                 for (int i = 0; i < a.length; i++) {
@@ -1030,66 +1386,83 @@ public class imuController extends FrameLayout implements SensorEventListener {
                 }
                 Magnetic.add(temp);
 
-                Time.add(time);
-                currentSample++;
-                if (currentSample != countSample) {
-                    lock.release();
-                    return;
-                }
+                Time = time;
 
-                periodUpdate();
+                periodUpdate2();
 
-                AccLinear.clear();
                 Acc.clear();
                 Gyro.clear();
                 Magnetic.clear();
-                Time.clear();
-                currentSample = 0;
                 lock.release();
 
                 return;
 
 //                pointer++;
-//                if (pointer == 10000) {
-//                    File file;
+//                if (pointer > 1000 && pointer < 10000) {
 //                    try {
-//                        file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "A");
-//                        FileOutputStream outputStream = new FileOutputStream(file);
-//                        String string;
-//                        for (int i = 0; i < A.size(); i++) {
-//                            string = A.get(i)[0] + "," + A.get(i)[1] + "," + A.get(i)[1] + "\n";
-//                            outputStream.write(string.getBytes());
-//                        }
-//                        outputStream.close();
+//                        TS.add(Time.get(0));
+//                        ALS.add(AccLinear.get(0));
+//                        QS.add(Quaternion.Quaternion);
+//                        float [] item = new float[3];
+//                        item[0] = Kfilter.Xk.data[0][0];
+//                        item[1] = Kfilter.Xk.data[1][0];
+//                        item[2] = Kfilter.Xk.data[2][0];
+//                        PKS.add(item);
 //
-//                        file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "AL");
-//                        outputStream = new FileOutputStream(file);
-//                        for (int i = 0; i < AL.size(); i++) {
-//                            string = AL.get(i)[0] + "," + AL.get(i)[1] + "," + AL.get(i)[1] + "\n";
-//                            outputStream.write(string.getBytes());
-//                        }
-//                        outputStream.close();
+//                        item = new float[3];
+//                        item[0] = Kfilter.Xk.data[3][0];
+//                        item[1] = Kfilter.Xk.data[4][0];
+//                        item[2] = Kfilter.Xk.data[5][0];
+//                        VKS.add(item);
 //
-//                        file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "G");
-//                        outputStream = new FileOutputStream(file);
-//                        for (int i = 0; i < G.size(); i++) {
-//                            string = G.get(i)[0] + "," + G.get(i)[1] + "," + G.get(i)[1] + "\n";
-//                            outputStream.write(string.getBytes());
-//                        }
-//                        outputStream.close();
+//                        item = new float[3];
+//                        item[0] = Kfilter.Xk_k1.data[0][0];
+//                        item[1] = Kfilter.Xk_k1.data[1][0];
+//                        item[2] = Kfilter.Xk_k1.data[2][0];
+//                        PK1S.add(item);
 //
-//                        file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "M");
-//                        outputStream = new FileOutputStream(file);
-//                        for (int i = 0; i < M.size(); i++) {
-//                            string = M.get(i)[0] + "," + M.get(i)[1] + "," + M.get(i)[1] + "\n";
-//                            outputStream.write(string.getBytes());
-//                        }
-//                        outputStream.close();
-//                        position[0] = 10000;
+//                        item = new float[3];
+//                        item[0] = Kfilter.Xk_k1.data[3][0];
+//                        item[1] = Kfilter.Xk_k1.data[4][0];
+//                        item[2] = Kfilter.Xk_k1.data[5][0];
+//                        VK1S.add(item);
+//
 //                    }catch (Exception err) {
 //                        System.out.print("OK");
 //                    }
+//                } else if (pointer == 10000) {
+//                    File file;
+//                    try {
+//                        file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "T.txt");
+//                        FS = new FileOutputStream(file, true);
+//                        String string;
+//                        for (int j = 0; j < TS.size(); j++) {
+//                            string = TS.get(j) + ",";
+//                            string += ALS.get(j)[0] + "," + ALS.get(j)[1] + "," + ALS.get(j)[2] + ",";
+//                            string += QS.get(j)[0] + "," + QS.get(j)[1] + "," + QS.get(j)[2] + "," + QS.get(j)[3] + ",";
+//                            string += PKS.get(j)[0] + "," + PKS.get(j)[1] + "," + PKS.get(j)[2] + ",";
+//                            string += VKS.get(j)[0] + "," + VKS.get(j)[1] + "," + VKS.get(j)[2] + ",";
+//                            string += PK1S.get(j)[0] + "," + PK1S.get(j)[1] + "," + PK1S.get(j)[2] + ",";
+//                            string += VK1S.get(j)[0] + "," + VK1S.get(j)[1] + "," + VK1S.get(j)[2] + ",";
+//                            string += SS.get(j)[0] + "," + SS.get(j)[1] + "," + SS.get(j)[2] + "\n";
+//
+//                            FS.write(string.getBytes());
+//                        }
+//
+//                        FS.close();
+//                    }catch (Exception err) {
+//                        System.out.print(err.getMessage());
+//                    }
+//                } else if (pointer > 10000) {
+//                    prevPositions[0] = 10000;
 //                }
+//                AccLinear.clear();
+//                Acc.clear();
+//                Gyro.clear();
+//                Magnetic.clear();
+//                Time.clear();
+//                lock.release();
+//                return;
 //                System.out.println("|A|[" + ax + "," + ay + "," + az + ","+ Double.toString(dt) + "]");
 //                if (dt > 1.0) {
 //                    prevTime = time;
@@ -1204,7 +1577,9 @@ public class imuController extends FrameLayout implements SensorEventListener {
 //                prevV = velocity;
 //                prevTime = time;
 //                lock.release();
-            }catch (InterruptedException err) {}
+            }catch (Exception err) {
+                System.out.print(err.getMessage());
+            }
         }
 
         public float[] GetAccelerationByWorldCoordinateSystem(float[] RM, float[] acceleration) {
@@ -1225,7 +1600,9 @@ public class imuController extends FrameLayout implements SensorEventListener {
                 lock.release();
 
 //                Reset();
-            } catch (InterruptedException err) {}
+            } catch (Exception err) {
+                System.out.print(err.getMessage());
+            }
             return res;
         }
     }

@@ -1323,7 +1323,7 @@ void Tracking::UpdateLocalKeyFrames()
 bool Tracking::Relocalization()
 {
     // Compute Bag of Words Vector
-    mCurrentFrame.ComputeBoW();     //当前帧计算词袋库
+    mCurrentFrame.ComputeBoW();     //Current frame calculation word bank
 
     // Relocalization is performed when tracking is lost
     // Track Lost: Query KeyFrame Database for keyframe candidates for relocalisation
@@ -1353,11 +1353,11 @@ bool Tracking::Relocalization()
     {
         KeyFrame* pKF = vpCandidateKFs[i];
         if(pKF->isBad())
-            vbDiscarded[i] = true;      //丢弃标志位
+            vbDiscarded[i] = true;
         else
         {
-            int nmatches = matcher.SearchByBoW(pKF,mCurrentFrame,vvpMapPointMatches[i]);    //将重定位备选关键帧与当前帧通过bow进行匹配
-            if(nmatches<15)     //匹配到的mappoint小于15，丢弃此关键帧
+            int nmatches = matcher.SearchByBoW(pKF,mCurrentFrame,vvpMapPointMatches[i]);
+            if(nmatches<15)
             {
                 vbDiscarded[i] = true;
                 continue;
@@ -1488,35 +1488,21 @@ bool Tracking::Relocalization()
 void Tracking::Reset()
 {
 
-//    cout << "System Reseting" << endl;
     LOGE("System Reseting");
 
-//    if(mpViewer)
-//    {
-//        mpViewer->RequestStop();
-//        while(!mpViewer->isStopped())
-//            usleep(3000);
-//    }
-
     // Reset Local Mapping
-//    cout << "Reseting Local Mapper...";
     LOGE("Reseting Local Mapper...");
     mpLocalMapper->RequestReset();
-//    cout << " done" << endl;
     LOGE("done");
 
     // Reset Loop Closing
-//    cout << "Reseting Loop Closing...";
     LOGE("Reseting Loop Closing...");
     mpLoopClosing->RequestReset();
-//    cout << " done" << endl;
     LOGE("done");
 
     // Clear BoW Database
-//    cout << "Reseting Database...";
     LOGE("Reseting Database...");
     mpKeyFrameDB->clear();
-//    cout << " done" << endl;
     LOGE("done");
 
     // Clear Map (this erase MapPoints and KeyFrames)
@@ -1537,8 +1523,6 @@ void Tracking::Reset()
     mlFrameTimes.clear();
     mlbLost.clear();
 
-//    if(mpViewer)
-//        mpViewer->Release();
 }
 
 void Tracking::ChangeCalibration(const string &strSettingPath)

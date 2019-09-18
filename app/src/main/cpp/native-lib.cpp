@@ -30,6 +30,8 @@ double ttrack = 0;
 
 cv::Mat Plane2World = cv::Mat::eye(4, 4, CV_32F);
 cv::Mat Marker2World = cv::Mat::eye(4, 4, CV_32F);
+cv::Mat lastTranslate = cv::Mat(3,1,CV_32F);
+cv::Mat prevPos = cv::Mat(3,1,CV_32F);
 cv::Mat centroid;
 
 bool load_as_text(ORB_SLAM2::ORBVocabulary *voc, const std::string infile) {
@@ -135,26 +137,59 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
                     }
                 }
             }
+            //
+
+
 
             for (size_t j = 0; j < projectedPoints.size(); ++j) {
                 cv::Point2f r1 = projectedPoints[j];
                 if (r1.x < 640 && r1.x > 0 && r1.y > 0 && r1.y < 480)
-                    if (index != j)
+                    if (index != j) {
                         cv::circle(*pMat, cv::Point(r1.x, r1.y), 2, cv::Scalar(0, 255, 0), 1, LINE_8);
-                    else
-                        cv::circle(*pMat, cv::Point(r1.x, r1.y), 4, cv::Scalar(255, 0, 0), 1, LINE_8);
-
+                        continue;
+                    }
+                    else {
+                        cv::circle(*pMat, cv::Point(r1.x, r1.y), 4, cv::Scalar(255, 0, 0), 1,
+                                   LINE_8);
+                        cv::circle(*pMat, cv::Point(r1.x, r1.y), 3, cv::Scalar(255, 0, 0), 1,
+                                   LINE_8);
+                        cv::circle(*pMat, cv::Point(r1.x, r1.y), 2, cv::Scalar(255, 0, 0), 1,
+                                   LINE_8);
+                    }
             }
 
+            //  Product logic
+            /*
             cv::Point3f dot = allmappoints[index];
             float tX = 0;
             float tY = 0;
             float tZ = 0;
-            dist = sqrt((dot.x - tX) * (dot.x - tX)  + (dot.y - tY) * (dot.y - tY) + (dot.z - tZ)*(dot.z - tZ));
+            cv::Mat curPos = (*rtMat).col(0).rowRange(0,3);
+            float scaleX = (curPos.at<float>(0,0) - prevPos.at<float>(0,0));
+            if (abs(translateVec.at<float>(0,0) - lastTranslate.at<float>(0,0)) > 0.01) {
+                scaleX = abs(scaleX / (translateVec.at<float>(0,0) - lastTranslate.at<float>(0,0)));
+            } else {
+                scaleX = 1;
+            }
+            float scaleY = (curPos.at<float>(1,0) - prevPos.at<float>(1,0));
+            if (abs((translateVec.at<float>(1,0) - lastTranslate.at<float>(1,0))) > 0.01) {
+                scaleY = abs (scaleY / (translateVec.at<float>(1,0) - lastTranslate.at<float>(1,0)));
+            } else {
+                scaleY = 1;
+            }
+            float scaleZ = (curPos.at<float>(2,0) - prevPos.at<float>(2,0));
+            if (abs((translateVec.at<float>(1,0) - lastTranslate.at<float>(1,0))) > 0.01) {
+                scaleZ = abs(scaleZ / (translateVec.at<float>(1,0) - lastTranslate.at<float>(1,0)));
+            } else {
+                scaleZ = 1;
+            }
+            dist = sqrt((dot.x / scaleX - tX) * (dot.x * scaleX - tX)  + (dot.y * scaleY - tY) * (dot.y * scaleY - tY) + (dot.z * scaleZ - tZ)*(dot.z * scaleZ - tZ));
             calc = true;
+            lastTranslate = translateVec.clone();
+            if (sqrt(pow(prevPos.at<float>(0,0) - curPos.at<float>(0,0), 2) + pow(prevPos.at<float>(1,0) - curPos.at<float>(1,0),2) + pow(prevPos.at<float>(2,0) - curPos.at<float>(2,0),2) > 0.8))
+                prevPos = (*rtMat).col(0).rowRange(0, 3);
 
-            //  Product logic
-            /*
+
             if (instialized == false){
                 Plane mplane;
                 cv::Mat tempTpw, rpw, rwp, tpw, twp;
@@ -266,15 +301,15 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
     }
     char rt_string[1000];
 
-    sprintf(rt_string, "[%.2f,%.2f,%.2f]\0", (*rtMat).at<float>(0,0),(*rtMat).at<float>(0,1),(*rtMat).at<float>(0,2));
-    cv::putText(*pMat, rt_string , cv::Point(0,150), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,255), 2);
-    sprintf(rt_string, "[%.2f,%.2f,%.2f]\0", (*rtMat).at<float>(1,0),(*rtMat).at<float>(1,1),(*rtMat).at<float>(1,2));
-    cv::putText(*pMat, rt_string , cv::Point(0,170), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,255), 2);
-    sprintf(rt_string, "[%.2f,%.2f,%.2f]\0", (*rtMat).at<float>(2,0), (*rtMat).at<float>(2,1), (*rtMat).at<float>(2,2));
-    cv::putText(*pMat, rt_string , cv::Point(0,190), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,255), 2);
-
-    sprintf(rt_string, "[%.2f,%.2f,%.2f]\0", (*rtMat).at<float>(0,3),(*rtMat).at<float>(1,3),(*rtMat).at<float>(2,3));
-    cv::putText(*pMat, rt_string , cv::Point(0,210), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(170,170,255), 2);
+//    sprintf(rt_string, "[%.2f,%.2f,%.2f]\0", (*rtMat).at<float>(0,0),(*rtMat).at<float>(0,1),(*rtMat).at<float>(0,2));
+//    cv::putText(*pMat, rt_string , cv::Point(0,150), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,255), 2);
+//    sprintf(rt_string, "[%.2f,%.2f,%.2f]\0", (*rtMat).at<float>(1,0),(*rtMat).at<float>(1,1),(*rtMat).at<float>(1,2));
+//    cv::putText(*pMat, rt_string , cv::Point(0,170), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,255), 2);
+//    sprintf(rt_string, "[%.2f,%.2f,%.2f]\0", (*rtMat).at<float>(2,0), (*rtMat).at<float>(2,1), (*rtMat).at<float>(2,2));
+//    cv::putText(*pMat, rt_string , cv::Point(0,190), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,255), 2);
+//
+//    sprintf(rt_string, "[%.2f,%.2f,%.2f]\0", (*rtMat).at<float>(0,3),(*rtMat).at<float>(1,3),(*rtMat).at<float>(2,3));
+//    cv::putText(*pMat, rt_string , cv::Point(0,210), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(170,170,255), 2);
 
     switch (SLAM.GetTrackingState()) {
         case -1: {
@@ -305,6 +340,7 @@ Java_com_example_ys_orbtest_OrbTest_CVTest(JNIEnv *env, jobject instance, jlong 
         default:
             break;
     }
+
 
 
     /**Return the resulting camera pose matrix to the java code to update the opengl camera pose later.**/

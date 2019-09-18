@@ -40,7 +40,7 @@ public class Kalman {
         Yk = new Matrix(countMeasurement, 1);
 
         Matrix.SetIdentity(H);
-//        Matrix.SetIdentity(Pk);
+        Matrix.SetIdentity(Pk);
 
     }
 
@@ -75,6 +75,9 @@ public class Kalman {
 
         //Kk = Pk|k-1*Hk(t)*Sk(inv)
         Matrix SkInv = Matrix.Invert(Sk);
+        if (SkInv.state == false) {
+            return;
+        }
         Matrix K = Matrix.Multiply(temp, SkInv);
 
         //xk|k = xk|k-1 + Kk*Yk
@@ -109,11 +112,11 @@ public class Kalman {
 
     public void rebuildB(float dt) {
         for (int i = 0; i < B.Cols; i++) {
-            this.B.data[i][i] = dt * dt / 2;
+            this.B.data[i][i] = dt * dt / 4;
         }
 
         for (int i = B.Cols; i < B.Rows; i++) {
-            this.B.data[i][i - B.Cols] = dt;
+            this.B.data[i][i - B.Cols] = dt / 2;
         }
     }
 
@@ -161,7 +164,7 @@ public class Kalman {
     public void rebuildR(float dev) {
         for (int i = 0; i < R.Rows; i++) {
             for (int j = 0; j < R.Cols; j++) {
-                R.data[i][j] = 0;
+                R.data[i][j] = 0.0f;
             }
 
             if (i < 3)

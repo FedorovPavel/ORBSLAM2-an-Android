@@ -34,6 +34,8 @@ import java.io.FileInputStream;
 import java.io.InputStreamReader;
 import java.io.BufferedReader;
 import java.nio.charset.StandardCharsets;
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.Semaphore;
@@ -45,6 +47,7 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
     private CameraBridgeViewBase mOpenCvCameraView;
     private Timer mTimer;
     private MyTimerTask mTimerTask;
+    private NumberFormat formatter;
     private TextView myTextView;
     public static double DISTANCE = 1;
     private static long count = 0;
@@ -174,6 +177,7 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
         mTimer = new Timer();
         mTimerTask = new MyTimerTask();
         mTimer.schedule(mTimerTask, 1000, 1000);
+        formatter = new DecimalFormat("0.00");
 //        sensor.Reset();
     }
 
@@ -243,6 +247,7 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
         Mat rgb = inputFrame.rgba();
         try {
             sync.acquire();
+
 
             Mat RT = sensor.GetSensorData();
 
@@ -369,10 +374,18 @@ public class OrbTest extends Activity implements CameraBridgeViewBase.CvCameraVi
 
                 @Override
                 public void run() {
+                    boolean state = sensor.Ready();
+                    String str = "State: ";
+                    if (state) {
+                        str += "OK";
+                    } else {
+                        str += "Calibr";
+                    }
+                    str += ";";
                     if (DISTANCE != 1.0)
-                        myTextView.setText("DIST: " + DISTANCE + "m");
+                        myTextView.setText(str + "DIST: " + formatter.format(DISTANCE) + "m");
                     else
-                        myTextView.setText("DIST: --");
+                        myTextView.setText(str + "DIST: --");
                 }
             });
         }

@@ -620,19 +620,19 @@ bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv:
     vt.reserve(9);
     vn.reserve(8);
 
-    cv::Mat ir(3,3, CV_32F);
-    for (int i = 0; i < 3; i++) {
-        for (int j = 0; j < 3; j++) {
-            ir.at<float>(i,j) = IRt21.at<float>(i,j);
-        }
-    }
-    vR.push_back(ir);
-
-    cv::Mat it(3,1, CV_32F);
-    for (int i = 0; i < 3; i ++) {
-        it.at<float>(i, 0) = IRt21.at<float>(i, 3);
-    }
-    vt.push_back(it);
+//    cv::Mat ir(3,3, CV_32F);
+//    for (int i = 0; i < 3; i++) {
+//        for (int j = 0; j < 3; j++) {
+//            ir.at<float>(i,j) = IRt21.at<float>(i,j);
+//        }
+//    }
+//    vR.push_back(ir);
+//
+//    cv::Mat it(3,1, CV_32F);
+//    for (int i = 0; i < 3; i ++) {
+//        it.at<float>(i, 0) = IRt21.at<float>(i, 3);
+//    }
+//    vt.push_back(it);
 
     if(!(d1/d2<1.00001 || d2/d3<1.00001))  //If d1<d2 or d2<d3
     {

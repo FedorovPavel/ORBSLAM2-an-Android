@@ -1,14 +1,18 @@
 package com.example.ys.orbtest;
 
+import com.example.ys.orbtest.util.Mat;
+
 public class Matrix {
     public int Cols;
     public int Rows;
     public float[][] data;
+    public boolean state;
 
     public Matrix(int row, int col) {
         Cols = col;
         Rows = row;
         data = new float[row][col];
+        state = true;
     }
 
     public Matrix(int row, int col, float[] dataVector) {
@@ -20,6 +24,7 @@ public class Matrix {
                 data[i][j] = dataVector[(i*(col)) + j];
             }
         }
+        state = true;
     }
 
     public Matrix clone() {
@@ -94,7 +99,7 @@ public class Matrix {
         return c;
     }
 
-    public static Matrix Invert(Matrix a) {
+    public static Matrix Invert2(Matrix a) {
         Matrix c = new Matrix(a.Rows, a.Cols);
 
         for (int i = 0; i < a.Rows; i++)
@@ -103,8 +108,9 @@ public class Matrix {
 
         // adjugate and determinant
         double det = determinant(c.data);
-        if (det == 0.0) {
-            return a;
+        if (Math.abs(det) <= 0.000000000000001) {
+            c.state = false;
+            return c;
         }
         det = 1.0 / det;
         for (int i = 0; i < c.Rows; i++) {
@@ -115,6 +121,48 @@ public class Matrix {
             }
         }
 
+        return c;
+    }
+
+    public static Matrix Invert(Matrix a) {
+        Matrix c = new Matrix(a.Rows, a.Cols);
+
+        Matrix.SetIdentity(c);
+
+        int j;
+        float scalar;
+        for (int i = 0; i < a.Rows; i++) {
+            if (Math.abs(a.data[i][i]) == 0.0) { //we have to swap rows here to make nonzero diagonal
+                for (j = i; j < a.Rows; j++) {
+                    if (a.data[j][j] != 0.0)
+                        break;
+                }
+
+                if (j == a.Rows) {
+                    c.state = false;
+                    return c;  //can't get inverse matrix
+                }
+                swapRow(a, i, j);
+                swapRow(c, i, j);
+            } //if mtxin->data[r][r] == 0.0
+
+            scalar = 1.0f / a.data[i][i];
+
+            scaleRow(a, i, scalar);
+            scaleRow(c, i, scalar);
+
+            for (j = 0; j < i; j++) {
+                scalar = -a.data[j][i];
+                shearRow(a, j, i, scalar);
+                shearRow(c, j, i, scalar);
+            }
+
+            for (j = i + 1; j < a.Rows; j++) {
+                scalar = -a.data[j][i];
+                shearRow(a, j, i, scalar);
+                shearRow(c, j, i, scalar);
+            }
+        } //for r < mtxin->rows
         return c;
     }
 
@@ -179,4 +227,20 @@ public class Matrix {
         return minor;
     }
 
+    private static void swapRow(Matrix a, int i, int j) {
+        float[] temp = a.data[i].clone();
+        a.data[i] = a.data[j].clone();
+        a.data[j] = temp.clone();
+        return;
+    }
+
+    private static  void scaleRow(Matrix a, int row, float scalar) {
+        for (int i = 0; i < a.Cols; i++)
+            a.data[row][i] *= scalar;
+    }
+
+    private static void shearRow(Matrix a, int r1, int r2, float scalar) {
+        for (int c = 0; c < a.Cols; c++)
+            a.data[r1][c] += a.data[r2][c] * scalar;
+    }
 }
